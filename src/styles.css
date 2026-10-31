@@ -221,3 +221,32 @@
 .response-item>div{display:grid;gap:3px}.response-item b{font-size:9px;color:#bdb3ff}.response-item span{font-size:10px;color:#e3e5ef;white-space:pre-wrap;overflow-wrap:anywhere}
 @media(max-width:1000px){.forms-layout{grid-template-columns:1fr}}
 @media(max-width:600px){.forms-editor-panel,.forms-list-panel{padding:14px}.form-question-options{grid-template-columns:1fr}.form-question-options .required-toggle{padding:0}}
+
+
+/* Invoice builder and billing workspace */
+.invoices-layout{display:grid;grid-template-columns:minmax(0,1.05fr) minmax(0,.95fr);gap:16px;align-items:start}
+.invoice-editor-panel,.invoice-list-panel{min-width:0;padding:20px}
+.invoice-builder{margin-top:16px}
+.invoice-form-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}
+.invoice-form-grid label{min-width:0}
+.invoice-section-label{margin:8px 0 0;padding-top:14px;border-top:1px solid var(--line);font-size:9px;font-weight:850;letter-spacing:1px;color:#bcb0ff}
+.invoice-line-editor{display:grid;gap:11px;padding:13px;margin:2px 0 8px;border:1px solid var(--line);border-radius:10px;background:#ffffff05}
+.invoice-line-title{display:flex;align-items:center;justify-content:space-between}
+.invoice-line-title strong{font-size:10px;color:#c2b8ff}
+.invoice-line-editor>label{display:grid;gap:7px;font-size:9px;color:#aeb6c8}
+.invoice-line-editor input{width:100%;min-width:0;border:1px solid #30374b;background:#0b0f1a;border-radius:8px;padding:10px;color:#f3f3fb;font:inherit;font-size:10px}
+.invoice-line-total{font-size:9px;color:#a9a0dc;text-align:right}
+.invoice-total-preview{display:flex;justify-content:space-between;align-items:center;padding:15px;border:1px solid #7663e955;border-radius:10px;background:#7663e912}
+.invoice-total-preview span{font-size:10px;color:#b8b4ca}.invoice-total-preview strong{font-size:17px;color:#f4f1ff}
+.invoice-list{display:grid;gap:11px;margin-top:14px}
+.invoice-list-item{padding:14px;border:1px solid var(--line);border-radius:11px;background:#ffffff04;min-width:0}
+.invoice-list-top{display:flex;align-items:flex-start;justify-content:space-between;gap:10px}
+.invoice-list-top>div{display:grid;gap:5px;min-width:0}
+.invoice-list-top strong{font-size:12px;overflow-wrap:anywhere}.invoice-list-top small{font-size:9px;color:var(--muted)}
+.invoice-status{font-size:8px;text-transform:uppercase;letter-spacing:.7px;padding:5px 7px;border-radius:6px;background:#ffffff12;color:#aeb6c8}
+.invoice-status.sent{background:#39315e;color:#c8bbff}.invoice-status.paid{background:#1d3d32;color:#8ee0b9}.invoice-status.overdue{background:#493027;color:#ffb18b}.invoice-status.cancelled{background:#37313b;color:#b7a9bd}
+.invoice-list-total{font-size:19px;font-weight:850;letter-spacing:-.5px;margin:13px 0;color:#f0edff}
+.invoice-list-actions{display:flex;align-items:center;gap:10px;flex-wrap:wrap;padding-top:10px;border-top:1px solid var(--line)}
+.invoice-list-actions .secondary-btn{display:inline-flex;align-items:center;text-decoration:none}
+@media(max-width:1000px){.invoices-layout{grid-template-columns:1fr}}
+@media(max-width:600px){.invoice-editor-panel,.invoice-list-panel{padding:14px}.invoice-form-grid{grid-template-columns:1fr 1fr}.invoice-list-actions{gap:8px}}
