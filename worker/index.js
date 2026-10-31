@@ -73,7 +73,7 @@ export default {
    }
 
 
-   const publicPageMatch=url.pathname.match(/^\\/p\\/([a-z0-9]+)$/i);
+   const publicPageMatch=url.pathname.match(/^\/p\/([a-z0-9]+)$/i);
    if(publicPageMatch && request.method==="GET") {
     const page=await env.DB.prepare("SELECT destination_url FROM pages WHERE slug=? AND status='active'").bind(publicPageMatch[1]).first();
     if(!page) return new Response("Page not found.",{status:404,headers:{"content-type":"text/plain; charset=utf-8"}});
