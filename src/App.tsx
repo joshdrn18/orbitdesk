@@ -49,7 +49,7 @@ function App() {
     const value=qrValue.trim();
     if(!value){setQrImage('');setQrError('Enter a URL or text to generate your QR code.');return;}
     QRCode.toDataURL(value,{width:Number(qrSize),margin:2,errorCorrectionLevel:'H',color:{dark:qrForeground,light:qrBackground}})
-      .then(url=>{if(!cancelled){setQrImage(url);setQrError('');}})
+      .then((url: string)=>{if(!cancelled){setQrImage(url);setQrError('');}})
       .catch(()=>{if(!cancelled){setQrImage('');setQrError('Could not generate this QR code. Try a shorter value.');}});
     return ()=>{cancelled=true;};
   },[qrValue,qrForeground,qrBackground,qrSize]);
