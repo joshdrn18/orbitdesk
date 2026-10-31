@@ -33,8 +33,8 @@ CREATE TABLE IF NOT EXISTS plans (
 );
 INSERT OR IGNORE INTO plans (id,name,monthly_price_cents,limits_json,created_at) VALUES
 ('free','Free',0,'{"pages":1,"qr_codes":5,"products":10,"forms":2,"invoices_per_month":5,"storage_mb":50}',unixepoch()*1000),
-('premium','Premium',599,'{"pages":-1,"qr_codes":-1,"products":100,"forms":20,"invoices_per_month":100,"storage_mb":2048}',unixepoch()*1000),
-('business','Business',1299,'{"pages":-1,"qr_codes":-1,"products":-1,"forms":100,"invoices_per_month":500,"storage_mb":10240}',unixepoch()*1000);
+('premium','Premium',59000,'{"pages":-1,"qr_codes":-1,"products":100,"forms":20,"invoices_per_month":100,"storage_mb":2048}',unixepoch()*1000),
+('business','Business',129000,'{"pages":-1,"qr_codes":-1,"products":-1,"forms":100,"invoices_per_month":500,"storage_mb":10240}',unixepoch()*1000);
 
 CREATE TABLE IF NOT EXISTS workspaces (
   id TEXT PRIMARY KEY,
