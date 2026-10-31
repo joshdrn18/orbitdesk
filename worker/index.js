@@ -112,6 +112,38 @@ export default {
     await env.DB.prepare("UPDATE pages SET title=?,description=?,destination_url=?,updated_at=? WHERE id=? AND user_id=?").bind(title,description,destination,Date.now(),page.id,user.id).run();
     return json({ok:true},200,headers);
    }
+   if(url.pathname==="/api/bio" && request.method==="GET") {
+    const user=await currentUser(request,env); if(!user) return json({error:"Please sign in to continue."},401,headers);
+    const profile=await env.DB.prepare("SELECT id,username,display_name,bio,avatar_url,theme FROM bio_profiles WHERE user_id=?").bind(user.id).first();
+    if(!profile) return json({profile:null,links:[]},200,headers);
+    const links=await env.DB.prepare("SELECT id,title,url,icon,position,is_active,clicks FROM bio_links WHERE profile_id=? ORDER BY position ASC").bind(profile.id).all();
+    return json({profile,links:links.results||[]},200,headers);
+   }
+   if(url.pathname==="/api/bio" && request.method==="PUT") {
+    const user=await currentUser(request,env); if(!user) return json({error:"Please sign in to continue."},401,headers);
+    const body=await request.json(); const username=String(body.username||"").trim().toLowerCase();
+    const displayName=String(body.displayName||"").trim(); const bio=String(body.bio||"").trim();
+    const avatarUrl=String(body.avatarUrl||"").trim(); const theme=["midnight","light","rose"].includes(body.theme)?body.theme:"midnight";
+    const links=Array.isArray(body.links)?body.links:[];
+    if(!/^[a-z0-9_]{3,24}$/.test(username)||["admin","api","login","register","settings","p","bio"].includes(username)) return json({error:"Username must be 3–24 characters (letters, numbers, underscore)."},400,headers);
+    if(displayName.length<2||displayName.length>60) return json({error:"Display name must be 2–60 characters."},400,headers);
+    if(bio.length>160) return json({error:"Bio must be 160 characters or less."},400,headers);
+    if(avatarUrl && (!/^https?:\/\//i.test(avatarUrl)||avatarUrl.length>2048)) return json({error:"Avatar must be a valid image URL."},400,headers);
+    if(links.length>20) return json({error:"You can add up to 20 links."},400,headers);
+    const existing=await env.DB.prepare("SELECT id FROM bio_profiles WHERE user_id=?").bind(user.id).first();
+    const conflict=await env.DB.prepare("SELECT id,user_id FROM bio_profiles WHERE username=? COLLATE NOCASE").bind(username).first();
+    if(conflict && conflict.user_id!==user.id) return json({error:"That username is already taken."},409,headers);
+    const now=Date.now(); const profileId=existing?.id||crypto.randomUUID();
+    await env.DB.prepare("INSERT INTO bio_profiles (id,user_id,username,display_name,bio,avatar_url,theme,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?) ON CONFLICT(user_id) DO UPDATE SET username=excluded.username,display_name=excluded.display_name,bio=excluded.bio,avatar_url=excluded.avatar_url,theme=excluded.theme,updated_at=excluded.updated_at")
+      .bind(profileId,user.id,username,displayName,bio,avatarUrl,theme,now,now).run();
+    await env.DB.prepare("DELETE FROM bio_links WHERE profile_id=?").bind(profileId).run();
+    for(let i=0;i<links.length;i++){
+      const item=links[i]||{}; const title=String(item.title||"").trim(); const linkUrl=String(item.url||"").trim(); const icon=String(item.icon||"link").slice(0,24);
+      if(!title||title.length>60||!/^https?:\/\//i.test(linkUrl)||linkUrl.length>2048) return json({error:"Each link needs a title and a valid http(s) URL."},400,headers);
+      await env.DB.prepare("INSERT INTO bio_links (id,profile_id,title,url,icon,position,is_active,created_at) VALUES (?,?,?,?,?,?,1,?)").bind(crypto.randomUUID(),profileId,title,linkUrl,icon,i,now).run();
+    }
+    return json({ok:true,username},200,headers);
+   }
    if(url.pathname.startsWith("/api/")) return json({error:"API endpoint not found."},404,headers);
    return env.ASSETS.fetch(request);
   } catch(error) {
