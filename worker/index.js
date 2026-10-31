@@ -101,6 +101,10 @@ export default {
     return json({ok:true},200,headers);
    }
 
+   if(url.pathname==="/api/plans" && request.method==="GET") {
+    const rows=await env.DB.prepare("SELECT id,name,monthly_price_cents,limits_json,active FROM plans WHERE active=1 ORDER BY monthly_price_cents ASC").all();
+    return json({plans:rows.results||[]},200,headers);
+   }
    if(url.pathname==="/api/public/config" && request.method==="GET") {
     const [tools,maintenance,maintenanceMessage,announcementEnabled,announcementMessage]=await Promise.all([
      env.DB.prepare("SELECT tool_key,enabled FROM tool_settings").all(),
