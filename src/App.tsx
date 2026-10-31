@@ -3,7 +3,9 @@ import { Activity, ArrowUpRight, BarChart3, Bell, ChevronDown, CircleHelp, Comma
 
 type User = { id: string; email: string; displayName: string; role: string; plan: string };
 type Page = { id:string; title:string; slug:string; description:string; destination_url:string; status:string; created_at:number };
-type BioLink = { title:string; url:string; icon:string };\ntype BioProfile = { username:string; display_name:string; bio:string; avatar_url:string; theme:string };\ntype View = 'Overview' | 'My Pages' | 'Bio Pages' | 'QR Studio' | 'Products' | 'Forms' | 'Invoices' | 'Analytics' | 'Settings';
+type BioLink = { title:string; url:string; icon:string };
+type BioProfile = { username:string; display_name:string; bio:string; avatar_url:string; theme:string };
+type View = 'Overview' | 'My Pages' | 'Bio Pages' | 'QR Studio' | 'Products' | 'Forms' | 'Invoices' | 'Analytics' | 'Settings';
 const nav: { label: View; icon: typeof LayoutDashboard; tag?: string }[] = [
   { label: 'Overview', icon: LayoutDashboard }, { label: 'My Pages', icon: Link2 }, { label: 'Bio Pages', icon: UserRound }, { label: 'QR Studio', icon: QrCode },
   { label: 'Products', icon: Package }, { label: 'Forms', icon: FileText }, { label: 'Invoices', icon: CreditCard },
