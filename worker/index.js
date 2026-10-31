@@ -73,6 +73,127 @@ export default {
    }
 
 
+   // Admin Control Center — every route is protected by the signed-in admin role.
+   if(url.pathname.startsWith("/api/admin")) {
+    const admin=await currentUser(request,env);
+    if(!admin) return json({error:"Please sign in to continue."},401,headers);
+    if(admin.role!=="admin") return json({error:"Admin access required."},403,headers);
+    const audit=async(action,targetType=null,targetId=null,metadata=null)=>env.DB.prepare("INSERT INTO audit_logs (id,actor_user_id,action,target_type,target_id,metadata_json,created_at) VALUES (?,?,?,?,?,?,?)").bind(crypto.randomUUID(),admin.id,action,targetType,targetId,metadata?JSON.stringify(metadata):null,Date.now()).run();
+
+    if(url.pathname==="/api/admin/overview" && request.method==="GET") {
+     const [users,active,suspended,banned,premium,plans,usage,recent]=await Promise.all([
+      env.DB.prepare("SELECT COUNT(*) AS total FROM users").first(),
+      env.DB.prepare("SELECT COUNT(*) AS total FROM users WHERE status='active'").first(),
+      env.DB.prepare("SELECT COUNT(*) AS total FROM users WHERE status='suspended'").first(),
+      env.DB.prepare("SELECT COUNT(*) AS total FROM users WHERE status='banned'").first(),
+      env.DB.prepare("SELECT COUNT(*) AS total FROM users WHERE plan IN ('premium','business')").first(),
+      env.DB.prepare("SELECT id,name,monthly_price_cents,limits_json,active FROM plans ORDER BY monthly_price_cents ASC").all(),
+      env.DB.prepare("SELECT metric,SUM(quantity) AS total FROM usage_counters GROUP BY metric ORDER BY total DESC LIMIT 8").all(),
+      env.DB.prepare("SELECT id,email,display_name,role,plan,status,created_at FROM users ORDER BY created_at DESC LIMIT 8").all()
+     ]);
+     return json({stats:{users:users.total||0,active:active.total||0,suspended:suspended.total||0,banned:banned.total||0,premium:premium.total||0},plans:plans.results||[],usage:usage.results||[],recent:recent.results||[]},200,headers);
+    }
+    if(url.pathname==="/api/admin/users" && request.method==="GET") {
+     const q=(url.searchParams.get("q")||"").trim().slice(0,100);
+     const status=url.searchParams.get("status")||"";
+     const plan=url.searchParams.get("plan")||"";
+     const rows=await env.DB.prepare("SELECT u.id,u.email,u.display_name,u.role,u.plan,u.status,u.created_at,o.limits_json AS limit_overrides FROM users u LEFT JOIN user_limit_overrides o ON o.user_id=u.id WHERE (?='' OR u.email LIKE ? OR u.display_name LIKE ?) AND (?='' OR u.status=?) AND (?='' OR u.plan=?) ORDER BY u.created_at DESC LIMIT 100")
+      .bind(q,q?"%"+q+"%":"",q?"%"+q+"%":"",status,status,plan,plan).all();
+     return json({users:rows.results||[]},200,headers);
+    }
+    const userMatch=url.pathname.match(/^\/api\/admin\/users\/([a-f0-9-]+)$/i);
+    if(userMatch && request.method==="PATCH") {
+     const targetId=userMatch[1];
+     if(targetId===admin.id) return json({error:"You cannot change your own admin account here."},400,headers);
+     const target=await env.DB.prepare("SELECT id,role,plan,status FROM users WHERE id=?").bind(targetId).first();
+     if(!target) return json({error:"User not found."},404,headers);
+     const body=await request.json();
+     const nextStatus=body.status===undefined?target.status:String(body.status);
+     const nextPlan=body.plan===undefined?target.plan:String(body.plan);
+     if(!["active","suspended","banned"].includes(nextStatus)) return json({error:"Invalid account status."},400,headers);
+     const validPlan=await env.DB.prepare("SELECT id FROM plans WHERE id=? AND active=1").bind(nextPlan).first();
+     if(!validPlan) return json({error:"Select an active plan."},400,headers);
+     await env.DB.prepare("UPDATE users SET status=?,plan=?,updated_at=? WHERE id=?").bind(nextStatus,nextPlan,Date.now(),targetId).run();
+     if(body.limits!==undefined) {
+      if(body.limits===null) await env.DB.prepare("DELETE FROM user_limit_overrides WHERE user_id=?").bind(targetId).run();
+      else {
+       if(!body.limits||typeof body.limits!=="object"||Array.isArray(body.limits)) return json({error:"Limits must be a JSON object."},400,headers);
+       const clean={};
+       for(const [key,value] of Object.entries(body.limits)) {
+        if(!/^[a-z_]{2,40}$/.test(key)||!Number.isInteger(value)||value < -1||value>100000000) return json({error:"Each limit must be an integer from -1 to 100000000."},400,headers);
+        clean[key]=value;
+       }
+       await env.DB.prepare("INSERT INTO user_limit_overrides (user_id,limits_json,updated_by,updated_at) VALUES (?,?,?,?) ON CONFLICT(user_id) DO UPDATE SET limits_json=excluded.limits_json,updated_by=excluded.updated_by,updated_at=excluded.updated_at").bind(targetId,JSON.stringify(clean),admin.id,Date.now()).run();
+      }
+     }
+     await audit("user.updated","user",targetId,{status:nextStatus,plan:nextPlan,limitsChanged:body.limits!==undefined});
+     return json({ok:true},200,headers);
+    }
+    if(url.pathname==="/api/admin/plans" && request.method==="GET") {
+     const rows=await env.DB.prepare("SELECT id,name,monthly_price_cents,limits_json,active FROM plans ORDER BY monthly_price_cents ASC").all();
+     return json({plans:rows.results||[]},200,headers);
+    }
+    const planMatch=url.pathname.match(/^\/api\/admin\/plans\/([a-z]+)$/i);
+    if(planMatch && request.method==="PATCH") {
+     const plan=await env.DB.prepare("SELECT id FROM plans WHERE id=?").bind(planMatch[1]).first();
+     if(!plan) return json({error:"Plan not found."},404,headers);
+     const body=await request.json();
+     if(body.name!==undefined && (typeof body.name!=="string"||body.name.trim().length<2||body.name.length>40)) return json({error:"Plan name must be 2–40 characters."},400,headers);
+     if(body.monthly_price_cents!==undefined && (!Number.isInteger(body.monthly_price_cents)||body.monthly_price_cents<0||body.monthly_price_cents>100000000)) return json({error:"Invalid plan price."},400,headers);
+     if(body.limits!==undefined && (!body.limits||typeof body.limits!=="object"||Array.isArray(body.limits)||Object.values(body.limits).some(v=>!Number.isInteger(v)||v < -1||v>100000000))) return json({error:"Plan limits must be integer values."},400,headers);
+     if(body.active!==undefined && typeof body.active!=="boolean") return json({error:"Active must be true or false."},400,headers);
+     const current=await env.DB.prepare("SELECT name,monthly_price_cents,limits_json,active FROM plans WHERE id=?").bind(planMatch[1]).first();
+     await env.DB.prepare("UPDATE plans SET name=?,monthly_price_cents=?,limits_json=?,active=? WHERE id=?").bind(body.name===undefined?current.name:body.name.trim(),body.monthly_price_cents===undefined?current.monthly_price_cents:body.monthly_price_cents,body.limits===undefined?current.limits_json:JSON.stringify(body.limits),body.active===undefined?current.active:(body.active?1:0),planMatch[1]).run();
+     await audit("plan.updated","plan",planMatch[1],body);
+     return json({ok:true},200,headers);
+    }
+    if(url.pathname==="/api/admin/tools" && request.method==="GET") {
+     const rows=await env.DB.prepare("SELECT tool_key,name,description,enabled,updated_at FROM tool_settings ORDER BY name").all();
+     return json({tools:rows.results||[]},200,headers);
+    }
+    const toolMatch=url.pathname.match(/^\/api\/admin\/tools\/([a-z_]+)$/);
+    if(toolMatch && request.method==="PATCH") {
+     const body=await request.json();
+     if(typeof body.enabled!=="boolean") return json({error:"enabled must be true or false."},400,headers);
+     const result=await env.DB.prepare("UPDATE tool_settings SET enabled=?,updated_by=?,updated_at=? WHERE tool_key=?").bind(body.enabled?1:0,admin.id,Date.now(),toolMatch[1]).run();
+     if(!result.meta?.changes) return json({error:"Tool not found."},404,headers);
+     await audit("tool.toggled","tool",toolMatch[1],{enabled:body.enabled});
+     return json({ok:true},200,headers);
+    }
+    if(url.pathname==="/api/admin/settings" && request.method==="GET") {
+     const rows=await env.DB.prepare("SELECT setting_key,setting_value,updated_at FROM system_settings ORDER BY setting_key").all();
+     return json({settings:rows.results||[]},200,headers);
+    }
+    if(url.pathname==="/api/admin/settings" && request.method==="PUT") {
+     const body=await request.json();
+     const allowed=["maintenance_mode","maintenance_message","allow_registration","announcement_enabled","announcement_message"];
+     for(const key of allowed) if(body[key]!==undefined) {
+      const value=String(body[key]);
+      if(value.length>1000) return json({error:"A setting value is too long."},400,headers);
+      await env.DB.prepare("INSERT INTO system_settings (setting_key,setting_value,updated_by,updated_at) VALUES (?,?,?,?) ON CONFLICT(setting_key) DO UPDATE SET setting_value=excluded.setting_value,updated_by=excluded.updated_by,updated_at=excluded.updated_at").bind(key,value,admin.id,Date.now()).run();
+     }
+     await audit("settings.updated","system",null,{keys:Object.keys(body).filter(k=>allowed.includes(k))});
+     return json({ok:true},200,headers);
+    }
+    if(url.pathname==="/api/admin/audit" && request.method==="GET") {
+     const rows=await env.DB.prepare("SELECT a.id,a.action,a.target_type,a.target_id,a.metadata_json,a.created_at,u.email AS actor_email FROM audit_logs a LEFT JOIN users u ON u.id=a.actor_user_id ORDER BY a.created_at DESC LIMIT 100").all();
+     return json({logs:rows.results||[]},200,headers);
+    }
+    if(url.pathname==="/api/admin/announcements" && request.method==="GET") {
+     const rows=await env.DB.prepare("SELECT id,title,message,is_active,created_at FROM announcements ORDER BY created_at DESC LIMIT 50").all();
+     return json({announcements:rows.results||[]},200,headers);
+    }
+    if(url.pathname==="/api/admin/announcements" && request.method==="POST") {
+     const body=await request.json(); const title=String(body.title||"").trim(); const message=String(body.message||"").trim();
+     if(title.length<3||title.length>100||message.length<3||message.length>1000) return json({error:"Title must be 3–100 characters and message 3–1000 characters."},400,headers);
+     const id=crypto.randomUUID();
+     await env.DB.prepare("INSERT INTO announcements (id,title,message,is_active,created_by,created_at) VALUES (?,?,?,1,?,?)").bind(id,title,message,admin.id,Date.now()).run();
+     await audit("announcement.created","announcement",id,{title});
+     return json({ok:true,id},201,headers);
+    }
+    return json({error:"Admin endpoint not found."},404,headers);
+   }
+
    const publicPageMatch=url.pathname.match(/^\/p\/([a-z0-9]+)$/i);
    if(publicPageMatch && request.method==="GET") {
     const page=await env.DB.prepare("SELECT destination_url FROM pages WHERE slug=? AND status='active'").bind(publicPageMatch[1]).first();
