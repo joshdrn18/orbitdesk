@@ -1,0 +1,16 @@
+ALTER TABLE products ADD COLUMN bio_enabled INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE products ADD COLUMN store_enabled INTEGER NOT NULL DEFAULT 0;
+
+CREATE TABLE IF NOT EXISTS product_stores (
+  id TEXT PRIMARY KEY,
+  user_id TEXT NOT NULL UNIQUE REFERENCES users(id) ON DELETE CASCADE,
+  slug TEXT NOT NULL UNIQUE COLLATE NOCASE,
+  store_name TEXT NOT NULL,
+  description TEXT NOT NULL DEFAULT '',
+  logo_url TEXT NOT NULL DEFAULT '',
+  theme TEXT NOT NULL DEFAULT 'midnight',
+  enabled INTEGER NOT NULL DEFAULT 0,
+  created_at INTEGER NOT NULL,
+  updated_at INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_product_stores_slug ON product_stores(slug);
