@@ -24,6 +24,8 @@ async function currentUser(request,env) {
   return env.DB.prepare("SELECT id,email,display_name,role,plan FROM users WHERE id=? AND status='active'").bind(session.user_id).first();
 }
 async function sha(value) { return toB64(await crypto.subtle.digest("SHA-256",enc.encode(value))); }
+async function isToolEnabled(env,key) { const row=await env.DB.prepare("SELECT enabled FROM tool_settings WHERE tool_key=?").bind(key).first(); return !row || Number(row.enabled)!==0; }
+async function readSetting(env,key,fallback="") { const row=await env.DB.prepare("SELECT setting_value FROM system_settings WHERE setting_key=?").bind(key).first(); return row?.setting_value ?? fallback; }
 function validEmail(email) { return typeof email==="string" && email.length<=254 && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email); }
 export default {
  async fetch(request,env) {
@@ -42,6 +44,7 @@ export default {
     }
    }
    if(url.pathname==="/api/auth/register" && request.method==="POST") {
+    if((await readSetting(env,"allow_registration","true"))!=="true") return json({error:"New registrations are temporarily disabled."},403,headers);
     const body=await request.json(); const email=String(body.email||"").trim().toLowerCase(); const displayName=String(body.displayName||"").trim(); const password=String(body.password||"");
     if(!validEmail(email)) return json({error:"Enter a valid email address."},400,headers);
     if(displayName.length<2||displayName.length>60) return json({error:"Name must be between 2 and 60 characters."},400,headers);
@@ -194,18 +197,27 @@ export default {
     return json({error:"Admin endpoint not found."},404,headers);
    }
 
+   const maintenanceMode=(await readSetting(env,"maintenance_mode","false"))==="true";
+   const isAuthPath=url.pathname.startsWith("/api/auth/")||url.pathname.startsWith("/api/health");
+   if(maintenanceMode&&!isAuthPath&&!url.pathname.startsWith("/api/admin")) {
+    const visitor=await currentUser(request,env);
+    if(visitor?.role!=="admin") return json({error:await readSetting(env,"maintenance_message","OrbitDesk is undergoing scheduled maintenance.")},503,headers);
+   }
    const publicPageMatch=url.pathname.match(/^\/p\/([a-z0-9]+)$/i);
    if(publicPageMatch && request.method==="GET") {
+    if(!(await isToolEnabled(env,"pages"))) return new Response("This tool is temporarily unavailable.",{status:503,headers:{"content-type":"text/plain; charset=utf-8"}});
     const page=await env.DB.prepare("SELECT destination_url FROM pages WHERE slug=? AND status='active'").bind(publicPageMatch[1]).first();
     if(!page) return new Response("Page not found.",{status:404,headers:{"content-type":"text/plain; charset=utf-8"}});
     return Response.redirect(page.destination_url,302);
    }
    if(url.pathname==="/api/pages" && request.method==="GET") {
+    if(!(await isToolEnabled(env,"pages"))) return json({error:"My Pages is temporarily disabled."},503,headers);
     const user=await currentUser(request,env); if(!user) return json({error:"Please sign in to continue."},401,headers);
     const result=await env.DB.prepare("SELECT id,title,slug,description,destination_url,status,created_at,updated_at FROM pages WHERE user_id=? ORDER BY created_at DESC").bind(user.id).all();
     return json({pages:result.results||[]},200,headers);
    }
    if(url.pathname==="/api/pages" && request.method==="POST") {
+    if(!(await isToolEnabled(env,"pages"))) return json({error:"My Pages is temporarily disabled."},503,headers);
     const user=await currentUser(request,env); if(!user) return json({error:"Please sign in to continue."},401,headers);
     const body=await request.json(); const title=String(body.title||"").trim(); const description=String(body.description||"").trim(); const destination=String(body.destinationUrl||"").trim();
     if(title.length<2||title.length>80) return json({error:"Page title must be between 2 and 80 characters."},400,headers);
@@ -220,6 +232,7 @@ export default {
    }
    const pageMatch=url.pathname.match(/^\/api\/pages\/([a-f0-9-]+)$/i);
    if(pageMatch && ["PUT","DELETE"].includes(request.method)) {
+    if(!(await isToolEnabled(env,"pages"))) return json({error:"My Pages is temporarily disabled."},503,headers);
     const user=await currentUser(request,env); if(!user) return json({error:"Please sign in to continue."},401,headers);
     const page=await env.DB.prepare("SELECT id FROM pages WHERE id=? AND user_id=? AND status!='deleted'").bind(pageMatch[1],user.id).first();
     if(!page) return json({error:"Page not found."},404,headers);
@@ -234,6 +247,7 @@ export default {
     return json({ok:true},200,headers);
    }
    if(url.pathname==="/api/bio" && request.method==="GET") {
+    if(!(await isToolEnabled(env,"bio_pages"))) return json({error:"Bio Pages is temporarily disabled."},503,headers);
     const user=await currentUser(request,env); if(!user) return json({error:"Please sign in to continue."},401,headers);
     const profile=await env.DB.prepare("SELECT id,username,display_name,bio,avatar_url,theme FROM bio_profiles WHERE user_id=?").bind(user.id).first();
     if(!profile) return json({profile:null,links:[]},200,headers);
@@ -241,6 +255,7 @@ export default {
     return json({profile,links:links.results||[]},200,headers);
    }
    if(url.pathname==="/api/bio" && request.method==="PUT") {
+    if(!(await isToolEnabled(env,"bio_pages"))) return json({error:"Bio Pages is temporarily disabled."},503,headers);
     const user=await currentUser(request,env); if(!user) return json({error:"Please sign in to continue."},401,headers);
     const body=await request.json(); const username=String(body.username||"").trim().toLowerCase();
     const displayName=String(body.displayName||"").trim(); const bio=String(body.bio||"").trim();
