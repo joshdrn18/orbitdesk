@@ -59,7 +59,6 @@ function App() {
   const [adminSearch,setAdminSearch] = useState('');
   const [adminLoading,setAdminLoading] = useState(false);
   const [adminError,setAdminError] = useState('');
-  const [adminNotice,setAdminNotice] = useState('');
   const [announcementTitle,setAnnouncementTitle] = useState('');
   const [announcementMessage,setAnnouncementMessage] = useState('');
   useEffect(()=>{
