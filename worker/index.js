@@ -283,7 +283,7 @@ export default {
      const statements=[env.DB.prepare("INSERT INTO invoices (id,user_id,invoice_number,public_token,customer_name,customer_email,customer_address,issue_date,due_date,currency,tax_rate,subtotal_cents,tax_cents,total_cents,notes,status,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)").bind(id,user.id,invoiceNumber,token,customerName,customerEmail,customerAddress,issueDate,dueDate,currency,taxRate,subtotal,tax,total,notes,status,now,now),...cleanItems.map((item,index)=>env.DB.prepare("INSERT INTO invoice_items (id,invoice_id,description,quantity,unit_price_cents,line_total_cents,position) VALUES (?,?,?,?,?,?,?)").bind(crypto.randomUUID(),id,item.description,item.quantity,item.unitPrice,item.line,index))];
      await env.DB.batch(statements);return json({ok:true,id,public_token:token},201,headers);
     }
-    const invoiceMatch=url.pathname.match(/^\\/api\\/invoices\\/([a-f0-9-]+)$/i);
+    const invoiceMatch=url.pathname.match(/^\/api\/invoices\/([a-f0-9-]+)$/i);
     if(invoiceMatch&&["PUT","DELETE"].includes(request.method)){
      if(!(await isToolEnabled(env,"invoices")))return json({error:"Invoices is temporarily disabled."},503,headers);
      const user=await currentUser(request,env);if(!user)return json({error:"Please sign in to continue."},401,headers);
