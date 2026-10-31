@@ -1,11 +1,6 @@
 name = "orbitdesk"
-main = "worker/index.js"
 compatibility_date = "2026-10-31"
-
-[assets]
-directory = "./dist"
-binding = "ASSETS"
-not_found_handling = "single-page-application"
+pages_build_output_dir = "./dist"
 
 [[d1_databases]]
 binding = "DB"
