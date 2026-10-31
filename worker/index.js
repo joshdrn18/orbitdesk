@@ -270,10 +270,10 @@ export default {
    if(url.pathname==="/api/forms" && request.method==="POST") {
     if(!(await isToolEnabled(env,"forms"))) return json({error:"Forms is temporarily disabled."},503,headers);
     const user=await currentUser(request,env); if(!user) return json({error:"Please sign in to continue."},401,headers);
-    const body=await request.json(); const title=String(body.title||"").trim(); const description=String(body.description||"").trim(); const slug=String(body.slug||"").trim().toLowerCase(); const fields=Array.isArray(body.fields)?body.fields:[];
+    const body=await request.json(); const title=String(body.title||"").trim(); const description=String(body.description||"").trim(); const slug=String(body.slug||"").trim().toLowerCase(); const fields=Array.isArray(body.fields)?body.fields:[]; const status=String(body.status||"draft");
     if(title.length<2||title.length>100||description.length>500) return json({error:"Form title must be 2–100 characters and description up to 500 characters."},400,headers);
     if(!/^[a-z0-9][a-z0-9-]{2,39}$/.test(slug)) return json({error:"Form URL must be 3–40 characters using letters, numbers and hyphens."},400,headers);
-    if(fields.length>30) return json({error:"A form can have up to 30 questions."},400,headers);
+    if(fields.length>30||!["draft","published","closed"].includes(status)) return json({error:"A form can have up to 30 questions and a valid status."},400,headers);
     for(const field of fields){if(!field||typeof field!=="object"||!String(field.label||"").trim()||String(field.label).length>120||!["text","email","textarea","select","checkbox"].includes(field.type)||((field.type==="select")&&(!Array.isArray(field.options)||field.options.length<1||field.options.length>20)))return json({error:"Check your questions. Each question needs a label and valid field type/options."},400,headers);}
     const count=await env.DB.prepare("SELECT COUNT(*) AS total FROM forms WHERE user_id=?").bind(user.id).first();
     const plan=await env.DB.prepare("SELECT limits_json FROM plans WHERE id=?").bind(user.plan).first();
@@ -281,7 +281,7 @@ export default {
     if(limit!==-1&&Number(count?.total||0)>=limit)return json({error:"You have reached your form limit for this plan."},403,headers);
     const conflict=await env.DB.prepare("SELECT id FROM forms WHERE slug=? COLLATE NOCASE").bind(slug).first();if(conflict)return json({error:"That form URL is already taken."},409,headers);
     const id=crypto.randomUUID(),now=Date.now();
-    await env.DB.prepare("INSERT INTO forms (id,user_id,title,description,slug,fields_json,status,created_at,updated_at) VALUES (?,?,?,?,?,?, 'draft',?,?)").bind(id,user.id,title,description,slug,JSON.stringify(fields),now,now).run();
+    await env.DB.prepare("INSERT INTO forms (id,user_id,title,description,slug,fields_json,status,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?)").bind(id,user.id,title,description,slug,JSON.stringify(fields),status,now,now).run();
     return json({ok:true,id},201,headers);
    }
    const formMatch=url.pathname.match(/^\/api\/forms\/([a-f0-9-]+)(?:\/(submissions))?$/i);
@@ -310,7 +310,7 @@ export default {
     const body=await request.json();const answers=body?.answers;
     if(!answers||typeof answers!=="object"||Array.isArray(answers)||JSON.stringify(answers).length>20000)return json({error:"Invalid form response."},400,headers);
     const fields=JSON.parse(form.fields_json||"[]");
-    for(const field of fields){const value=answers[field.id];const textValue=Array.isArray(value)?value.join(","):String(value??"").trim();if(field.required&&!textValue)return json({error:"Please complete: "+field.label},400,headers);if(textValue.length>4000)return json({error:"One of your answers is too long."},400,headers);if(field.type==="email"&&textValue&&!validEmail(textValue))return json({error:"Enter a valid email address for "+field.label},400,headers);if(field.type==="select"&&textValue&&!field.options.includes(textValue))return json({error:"Invalid option for "+field.label},400,headers);}
+    for(const field of fields){const value=answers[field.id];const textValue=field.type==="checkbox"?(value===true?"yes":""):(Array.isArray(value)?value.join(","):String(value??"").trim());if(field.required&&!textValue)return json({error:"Please complete: "+field.label},400,headers);if(textValue.length>4000)return json({error:"One of your answers is too long."},400,headers);if(field.type==="email"&&textValue&&!validEmail(textValue))return json({error:"Enter a valid email address for "+field.label},400,headers);if(field.type==="select"&&textValue&&!field.options.includes(textValue))return json({error:"Invalid option for "+field.label},400,headers);}
     await env.DB.prepare("INSERT INTO form_submissions (id,form_id,answers_json,submitted_at) VALUES (?,?,?,?)").bind(crypto.randomUUID(),form.id,JSON.stringify(answers),Date.now()).run();
     return json({ok:true,message:"Your response has been submitted."},201,headers);
    }
