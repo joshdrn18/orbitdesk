@@ -76,6 +76,16 @@ export default {
    }
 
 
+   if(url.pathname==="/api/public/config" && request.method==="GET") {
+    const [tools,maintenance,maintenanceMessage,announcementEnabled,announcementMessage]=await Promise.all([
+     env.DB.prepare("SELECT tool_key,enabled FROM tool_settings").all(),
+     readSetting(env,"maintenance_mode","false"),
+     readSetting(env,"maintenance_message",""),
+     readSetting(env,"announcement_enabled","false"),
+     readSetting(env,"announcement_message","")
+    ]);
+    return json({tools:Object.fromEntries((tools.results||[]).map(x=>[x.tool_key,Number(x.enabled)===1])),maintenance:maintenance==="true",maintenanceMessage,announcement:announcementEnabled==="true"?announcementMessage:""},200,headers);
+   }
    // Admin Control Center — every route is protected by the signed-in admin role.
    if(url.pathname.startsWith("/api/admin")) {
     const admin=await currentUser(request,env);
