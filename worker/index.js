@@ -11,7 +11,7 @@ const fromB64 = value => Uint8Array.from(atob(value), c => c.charCodeAt(0));
 const random = n => { const b = crypto.getRandomValues(new Uint8Array(n)); return toB64(b).replace(/\+/g,"-").replace(/\//g,"_").replace(/=+$/,""); };
 async function hashPassword(password, salt) {
   const key = await crypto.subtle.importKey("raw", enc.encode(password), "PBKDF2", false, ["deriveBits"]);
-  const bits = await crypto.subtle.deriveBits({ name:"PBKDF2", salt, iterations:310000, hash:"SHA-256" }, key, 256);
+  const bits = await crypto.subtle.deriveBits({ name:"PBKDF2", salt, iterations:100000, hash:"SHA-256" }, key, 256);
   return toB64(bits);
 }
 async function passwordRecord(password) { const salt=crypto.getRandomValues(new Uint8Array(16)); return { salt:toB64(salt), hash:await hashPassword(password,salt) }; }
