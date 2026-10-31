@@ -222,6 +222,18 @@ export default {
     if(!page) return new Response("Page not found.",{status:404,headers:{"content-type":"text/plain; charset=utf-8"}});
     return Response.redirect(page.destination_url,302);
    }
+   if(url.pathname==="/api/analytics" && request.method==="GET") {
+    if(!(await isToolEnabled(env,"analytics"))) return json({error:"Analytics is temporarily disabled."},503,headers);
+    const user=await currentUser(request,env);if(!user)return json({error:"Please sign in to continue."},401,headers);
+    const requested=Number(url.searchParams.get("days")||30);const days=[7,30,90].includes(requested)?requested:30;const since=Date.now()-days*86400000;
+    const summary=await env.DB.prepare("SELECT COUNT(CASE WHEN event_type='page_click' THEN 1 END) AS page_clicks,COUNT(CASE WHEN event_type='bio_view' THEN 1 END) AS bio_views,COUNT(CASE WHEN event_type='bio_click' THEN 1 END) AS bio_clicks,COUNT(*) AS total_events FROM analytics_events WHERE user_id=? AND created_at>=?").bind(user.id,since).first();
+    const timeline=await env.DB.prepare("SELECT date(created_at/1000,'unixepoch') AS day,COUNT(CASE WHEN event_type='page_click' THEN 1 END) AS page_clicks,COUNT(CASE WHEN event_type='bio_view' THEN 1 END) AS bio_views,COUNT(CASE WHEN event_type='bio_click' THEN 1 END) AS bio_clicks FROM analytics_events WHERE user_id=? AND created_at>=? GROUP BY day ORDER BY day ASC").bind(user.id,since).all();
+    const topPages=await env.DB.prepare("SELECT p.id,p.title,p.slug,COUNT(e.id) AS clicks FROM analytics_events e JOIN pages p ON p.id=e.resource_id WHERE e.user_id=? AND e.event_type='page_click' AND e.created_at>=? GROUP BY p.id ORDER BY clicks DESC LIMIT 8").bind(user.id,since).all();
+    const topBioLinks=await env.DB.prepare("SELECT l.id,l.title,b.username,COUNT(e.id) AS clicks FROM analytics_events e JOIN bio_links l ON l.id=e.resource_id JOIN bio_profiles b ON b.id=l.profile_id WHERE e.user_id=? AND e.event_type='bio_click' AND e.created_at>=? GROUP BY l.id ORDER BY clicks DESC LIMIT 8").bind(user.id,since).all();
+    const countries=await env.DB.prepare("SELECT country,COUNT(*) AS events FROM analytics_events WHERE user_id=? AND created_at>=? GROUP BY country ORDER BY events DESC LIMIT 8").bind(user.id,since).all();
+    const referrers=await env.DB.prepare("SELECT CASE WHEN referrer='' THEN 'Direct' ELSE referrer END AS source,COUNT(*) AS events FROM analytics_events WHERE user_id=? AND created_at>=? GROUP BY source ORDER BY events DESC LIMIT 8").bind(user.id,since).all();
+    return json({days,summary:summary||{page_clicks:0,bio_views:0,bio_clicks:0,total_events:0},timeline:timeline.results||[],top_pages:topPages.results||[],top_bio_links:topBioLinks.results||[],countries:countries.results||[],referrers:referrers.results||[]},200,headers);
+   }
    if(url.pathname==="/api/pages" && request.method==="GET") {
     if(!(await isToolEnabled(env,"pages"))) return json({error:"My Pages is temporarily disabled."},503,headers);
     const user=await currentUser(request,env); if(!user) return json({error:"Please sign in to continue."},401,headers);
