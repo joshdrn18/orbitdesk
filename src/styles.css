@@ -168,3 +168,23 @@
 .product-item-actions{grid-column:2/4;display:flex;gap:12px;justify-content:flex-end}
 @media(max-width:950px){.products-layout{grid-template-columns:1fr}}
 @media(max-width:600px){.products-toolbar{align-items:flex-start;flex-direction:column}.products-summary{text-align:left}.products-filter-row{flex-direction:column}.products-filter-row select{width:100%}.product-item{grid-template-columns:46px minmax(0,1fr) auto;gap:9px}.product-thumb{width:46px;height:46px}.product-item-actions{grid-column:1/4}.product-form-grid{grid-template-columns:1fr 1fr}}
+
+
+/* Product storefront publishing */
+.store-settings-panel{margin-bottom:15px}
+.store-settings-form{display:grid;gap:14px;margin-top:16px}
+.store-fields{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}
+.store-fields label{display:grid;gap:7px;color:#aeb6c8;font-size:9px;min-width:0}
+.store-fields input,.store-fields select{width:100%;border:1px solid #30374b;background:#0b0f1a;border-radius:8px;padding:10px 12px;color:#f3f3fb;outline:none;font:inherit;font-size:10px}
+.store-fields small{color:#8f98ad;font-size:8px;overflow-wrap:anywhere}
+.store-settings-foot{display:flex;align-items:center;justify-content:space-between;gap:14px;border-top:1px solid var(--line);padding-top:14px;flex-wrap:wrap}
+.store-publish-toggle{display:flex;align-items:center;gap:10px;cursor:pointer}
+.store-publish-toggle input,.product-channel input{accent-color:#a99cff;width:15px;height:15px}
+.store-publish-toggle span{display:grid;gap:4px}
+.store-publish-toggle strong{font-size:10px;color:#e3e5f0}
+.store-publish-toggle small{font-size:8px;color:#8993aa}
+.store-settings-foot .form-actions{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.store-settings-foot .secondary-btn{display:inline-flex;align-items:center;text-decoration:none}
+.product-channel{display:inline-flex;align-items:center;gap:5px;color:#aeb6c8;font-size:8px;white-space:nowrap;cursor:pointer}
+.product-item-actions{align-items:center;flex-wrap:wrap}
+@media(max-width:600px){.store-fields{grid-template-columns:1fr}.store-settings-foot{align-items:flex-start;flex-direction:column}.store-settings-foot .form-actions{width:100%}}
