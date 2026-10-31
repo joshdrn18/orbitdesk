@@ -1,0 +1,25 @@
+const escapeHtml = value => String(value ?? "").replace(/[&<>"']/g, char => ({ "&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;" }[char]));
+export async function onRequest({ request, env, params }) {
+  if (request.method !== "GET" && request.method !== "HEAD") return new Response("Method not allowed.", { status:405, headers:{Allow:"GET, HEAD"} });
+  const slug = String(params.slug || "").toLowerCase();
+  if (!/^[a-z0-9][a-z0-9-]{2,29}$/.test(slug)) return new Response("Store not found.", {status:404});
+  try {
+    const store = await env.DB.prepare("SELECT user_id,slug,store_name,description,logo_url,theme FROM product_stores WHERE slug=? COLLATE NOCASE AND enabled=1").bind(slug).first();
+    if (!store) return new Response("Store not found or unavailable.", {status:404,headers:{"content-type":"text/plain; charset=utf-8"}});
+    const result = await env.DB.prepare("SELECT name,description,price_cents,currency,category,image_url FROM products WHERE user_id=? AND status='active' AND store_enabled=1 ORDER BY category ASC,created_at DESC").bind(store.user_id).all();
+    const products = result.results || [];
+    const theme = ["light","rose"].includes(store.theme) ? store.theme : "midnight";
+    const styles = {
+      midnight:"background:radial-gradient(circle at 50% 0%,#30294e,#10121d 58%);color:#f7f5ff;--card:#ffffff0d;--line:#ffffff24;--muted:#a7a2b8;--accent:#c9baff",
+      light:"background:#f4f5fb;color:#22263a;--card:#fff;--line:#e1e4ed;--muted:#747b8f;--accent:#6952bd",
+      rose:"background:radial-gradient(circle at 50% 0%,#713c5a,#251723 70%);color:#fff2f8;--card:#ffffff10;--line:#ffffff28;--muted:#e4bdcf;--accent:#ffc1d9"
+    };
+    const logo = store.logo_url ? '<img class="logo" src="' + escapeHtml(store.logo_url) + '" alt="">' : '<div class="logo fallback">' + escapeHtml(store.store_name.slice(0,1).toUpperCase()) + '</div>';
+    const cards = products.map(p => '<article class="product"><div class="image">' + (p.image_url ? '<img src="' + escapeHtml(p.image_url) + '" alt="' + escapeHtml(p.name) + '" loading="lazy">' : '<span>✦</span>') + '</div><div class="details"><small>' + escapeHtml(p.category || "PRODUCT") + '</small><h2>' + escapeHtml(p.name) + '</h2><p>' + escapeHtml(p.description || "") + '</p><strong>' + escapeHtml(p.currency) + ' ' + (Number(p.price_cents || 0)/100).toFixed(2) + '</strong></div></article>').join("");
+    const html = `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="theme-color" content="#10121d"><meta name="description" content="${escapeHtml(store.description || store.store_name)}"><title>${escapeHtml(store.store_name)} · OrbitDesk Store</title><style>*{box-sizing:border-box}body{margin:0;min-height:100vh;padding:42px 18px;font-family:Inter,ui-sans-serif,system-ui,-apple-system,sans-serif;${styles[theme]}}main{width:min(100%,980px);margin:auto}.head{text-align:center;margin:0 auto 34px;max-width:600px}.logo{width:78px;height:78px;border-radius:22px;object-fit:cover;border:1px solid var(--line);box-shadow:0 12px 35px #0003}.fallback{display:grid;place-items:center;margin:auto;background:#554a80;font-size:28px;font-weight:800}.head h1{font-size:clamp(26px,5vw,40px);letter-spacing:-1.4px;margin:16px 0 8px}.head p{font-size:14px;line-height:1.7;color:var(--muted);margin:0}.grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:16px}.product{overflow:hidden;border:1px solid var(--line);border-radius:17px;background:var(--card);backdrop-filter:blur(12px)}.image{aspect-ratio:1.35;background:#ffffff0d;display:grid;place-items:center;overflow:hidden}.image img{width:100%;height:100%;object-fit:cover}.image span{font-size:32px;color:var(--accent)}.details{padding:16px}.details small{font-size:9px;font-weight:800;letter-spacing:1px;color:var(--muted)}.details h2{font-size:16px;margin:7px 0}.details p{font-size:12px;line-height:1.6;color:var(--muted);min-height:36px;margin:0 0 12px}.details strong{font-size:13px;color:var(--accent)}.empty{text-align:center;padding:60px 20px;border:1px dashed var(--line);border-radius:16px;color:var(--muted)}footer{text-align:center;margin:42px 0 5px;font-size:10px;color:var(--muted)}footer a{color:inherit;text-decoration:none;font-weight:800}@media(max-width:720px){.grid{grid-template-columns:repeat(2,minmax(0,1fr))}}@media(max-width:480px){body{padding:30px 14px}.grid{grid-template-columns:1fr}.details p{min-height:0}}</style></head><body><main><header class="head">${logo}<h1>${escapeHtml(store.store_name)}</h1><p>${escapeHtml(store.description)}</p></header>${products.length ? '<section class="grid">' + cards + '</section>' : '<div class="empty">This store is ready for its first products.</div>'}<footer>Powered by <a href="/">OrbitDesk</a></footer></main></body></html>`;
+    return new Response(request.method === "HEAD" ? null : html, {status:200,headers:{"content-type":"text/html; charset=utf-8","cache-control":"public, max-age=60"}});
+  } catch (error) {
+    console.error("OrbitDesk Store error", error);
+    return new Response("Unable to load this store right now.", {status:500});
+  }
+}
