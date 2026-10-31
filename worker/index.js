@@ -76,6 +76,31 @@ export default {
    }
 
 
+   if(url.pathname==="/api/account/profile" && request.method==="GET") {
+    const user=await currentUser(request,env); if(!user) return json({error:"Not signed in."},401,headers);
+    const profile=await env.DB.prepare("SELECT display_name FROM users WHERE id=?").bind(user.id).first();
+    return json({profile},200,headers);
+   }
+   if(url.pathname==="/api/account/profile" && request.method==="PUT") {
+    const user=await currentUser(request,env); if(!user) return json({error:"Not signed in."},401,headers);
+    const body=await request.json(); const displayName=String(body.displayName||"").trim();
+    if(displayName.length<2||displayName.length>60) return json({error:"Name must be between 2 and 60 characters."},400,headers);
+    await env.DB.prepare("UPDATE users SET display_name=? WHERE id=?").bind(displayName,user.id).run();
+    return json({ok:true,profile:{display_name:displayName}},200,headers);
+   }
+   if(url.pathname==="/api/account/password" && request.method==="POST") {
+    const user=await currentUser(request,env); if(!user) return json({error:"Not signed in."},401,headers);
+    const body=await request.json(); const currentPassword=String(body.currentPassword||""); const newPassword=String(body.newPassword||"");
+    if(newPassword.length<10||newPassword.length>128) return json({error:"New password must be between 10 and 128 characters."},400,headers);
+    const record=await env.DB.prepare("SELECT password_hash,password_salt FROM users WHERE id=?").bind(user.id).first();
+    if(!record||await hashPassword(currentPassword,fromB64(record.password_salt))!==record.password_hash) return json({error:"Current password is incorrect."},401,headers);
+    const next=await passwordRecord(newPassword);
+    await env.DB.prepare("UPDATE users SET password_hash=?,password_salt=? WHERE id=?").bind(next.hash,next.salt,user.id).run();
+    const token=getCookie(request,"od_session");
+    await env.DB.prepare("DELETE FROM user_sessions WHERE user_id=? AND token_hash<>?").bind(user.id,await sha(token||"")).run();
+    return json({ok:true},200,headers);
+   }
+
    if(url.pathname==="/api/public/config" && request.method==="GET") {
     const [tools,maintenance,maintenanceMessage,announcementEnabled,announcementMessage]=await Promise.all([
      env.DB.prepare("SELECT tool_key,enabled FROM tool_settings").all(),
