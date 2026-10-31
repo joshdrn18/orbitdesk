@@ -31,6 +31,16 @@ export default {
   if(request.method==="OPTIONS") return new Response(null,{status:204,headers:{...headers,"access-control-allow-methods":"GET,POST,OPTIONS","access-control-allow-headers":"Content-Type"}});
   try {
    if(url.pathname==="/api/health" && request.method==="GET") return json({ok:true,service:"OrbitDesk API",version:"0.1.0"});
+   if(url.pathname==="/api/health/db" && request.method==="GET") {
+    try {
+     await env.DB.prepare("SELECT id,email FROM users LIMIT 1").first();
+     await env.DB.prepare("SELECT id,user_id,token_hash,expires_at FROM user_sessions LIMIT 1").first();
+     return json({ok:true,database:"connected",tables:"users,user_sessions"});
+    } catch(dbError) {
+     console.error("OrbitDesk D1 diagnostic",dbError);
+     return json({ok:false,database:"error",error:String(dbError?.message||dbError).slice(0,180)},500);
+    }
+   }
    if(url.pathname==="/api/auth/register" && request.method==="POST") {
     const body=await request.json(); const email=String(body.email||"").trim().toLowerCase(); const displayName=String(body.displayName||"").trim(); const password=String(body.password||"");
     if(!validEmail(email)) return json({error:"Enter a valid email address."},400,headers);
