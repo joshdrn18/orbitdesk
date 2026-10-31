@@ -1,5 +1,5 @@
-import { useEffect, useMemo, useState } from 'react';
-import { Activity, ArrowDownRight, ArrowUpRight, BarChart3, Bell, ChevronDown, CircleHelp, Command, CreditCard, FileText, Globe2, LayoutDashboard, Link2, LogOut, Menu, Package, Plus, QrCode, Search, Settings, ShieldCheck, Sparkles, Users, X, Zap } from 'lucide-react';
+import { useEffect, useMemo, useState, type FormEvent } from 'react';
+import { Activity, ArrowUpRight, BarChart3, Bell, ChevronDown, CircleHelp, Command, CreditCard, FileText, Globe2, LayoutDashboard, Link2, LogOut, Menu, Package, Plus, QrCode, Search, Settings, ShieldCheck, Sparkles, Users, X, Zap } from 'lucide-react';
 
 type User = { id: string; email: string; displayName: string; role: string; plan: string };
 type View = 'Overview' | 'My Pages' | 'QR Studio' | 'Products' | 'Forms' | 'Invoices' | 'Analytics' | 'Settings';
@@ -24,7 +24,7 @@ function App() {
   const [toast,setToast] = useState('');
   useEffect(()=>{ fetch('/api/auth/me').then(r=>r.ok?r.json():null).then(d=>{if(d?.user)setUser(d.user)}).catch(()=>{}); },[]);
   const initials = useMemo(()=> (user?.displayName||user?.email||'JD').slice(0,2).toUpperCase(),[user]);
-  async function submitAuth(e: React.FormEvent) {
+  async function submitAuth(e: FormEvent) {
     e.preventDefault(); setBusy(true); setError('');
     try {
       const res=await fetch('/api/auth/'+authMode,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({email,password,displayName:name})});
