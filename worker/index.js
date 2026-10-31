@@ -29,6 +29,7 @@ export default {
  async fetch(request,env) {
   const url=new URL(request.url); const headers=corsHeaders(request,env);
   if(request.method==="OPTIONS") return new Response(null,{status:204,headers:{...headers,"access-control-allow-methods":"GET,POST,OPTIONS","access-control-allow-headers":"Content-Type"}});
+  let diagnosticStage="route";
   try {
    if(url.pathname==="/api/health" && request.method==="GET") return json({ok:true,service:"OrbitDesk API",version:"0.1.0"});
    if(url.pathname==="/api/health/db" && request.method==="GET") {
@@ -42,14 +43,19 @@ export default {
     }
    }
    if(url.pathname==="/api/auth/register" && request.method==="POST") {
+    diagnosticStage="register:parse_body";
     const body=await request.json(); const email=String(body.email||"").trim().toLowerCase(); const displayName=String(body.displayName||"").trim(); const password=String(body.password||"");
     if(!validEmail(email)) return json({error:"Enter a valid email address."},400,headers);
     if(displayName.length<2||displayName.length>60) return json({error:"Name must be between 2 and 60 characters."},400,headers);
     if(password.length<10||password.length>128) return json({error:"Password must be between 10 and 128 characters."},400,headers);
+    diagnosticStage="register:check_existing_email";
     const existing=await env.DB.prepare("SELECT id FROM users WHERE email=?").bind(email).first();
     if(existing) return json({error:"An account with this email already exists."},409,headers);
+    diagnosticStage="register:hash_password";
     const id=crypto.randomUUID(); const record=await passwordRecord(password);
+    diagnosticStage="register:insert_user";
     await env.DB.prepare("INSERT INTO users (id,email,display_name,password_hash,password_salt,role,plan,status,created_at) VALUES (?,?,?,?,?,'user','free','active',?)").bind(id,email,displayName,record.hash,record.salt,Date.now()).run();
+    diagnosticStage="register:create_session";
     const token=random(32); await env.DB.prepare("INSERT INTO user_sessions (id,user_id,token_hash,expires_at,created_at) VALUES (?,?,?,?,?)").bind(crypto.randomUUID(),id,await sha(token),Date.now()+2592000000,Date.now()).run();
     return json({user:{id,email,displayName,role:"user",plan:"free"}},201,{...headers,"set-cookie":cookie("od_session",token,2592000)});
    }
@@ -75,7 +81,8 @@ export default {
    return env.ASSETS.fetch(request);
   } catch(error) {
    console.error("OrbitDesk API error",error);
-   return json({error:"Something went wrong. Please try again."},500,headers);
+   const detail=String(error?.message||error).slice(0,220);
+   return json({error:`${diagnosticStage}: ${detail}`},500,headers);
   }
  }
 };
