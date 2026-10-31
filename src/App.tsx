@@ -1,7 +1,8 @@
 import { useEffect, useMemo, useState, type FormEvent } from 'react';
 import { Activity, ArrowUpRight, BarChart3, Bell, ChevronDown, CircleHelp, Command, CreditCard, FileText, Globe2, LayoutDashboard, Link2, LogOut, Menu, Package, Plus, QrCode, Search, Settings, ShieldCheck, Sparkles, Users, X, Zap } from 'lucide-react';
 
-type User = { id: string; email: string; displayName: string; role: string; plan: string };\ntype Page = { id:string; title:string; slug:string; description:string; destination_url:string; status:string; created_at:number };
+type User = { id: string; email: string; displayName: string; role: string; plan: string };
+type Page = { id:string; title:string; slug:string; description:string; destination_url:string; status:string; created_at:number };
 type View = 'Overview' | 'My Pages' | 'QR Studio' | 'Products' | 'Forms' | 'Invoices' | 'Analytics' | 'Settings';
 const nav: { label: View; icon: typeof LayoutDashboard; tag?: string }[] = [
   { label: 'Overview', icon: LayoutDashboard }, { label: 'My Pages', icon: Link2 }, { label: 'QR Studio', icon: QrCode },
@@ -21,9 +22,22 @@ function App() {
   const [authMode,setAuthMode] = useState<'login'|'register'>('login');
   const [email,setEmail] = useState(''); const [password,setPassword] = useState(''); const [name,setName] = useState('');
   const [busy,setBusy] = useState(false); const [error,setError] = useState(''); const [mobileOpen,setMobileOpen] = useState(false);
-  const [toast,setToast] = useState('');\n  const [pages,setPages] = useState<Page[]>([]);\n  const [pagesLoading,setPagesLoading] = useState(false);\n  const [pageTitle,setPageTitle] = useState('');\n  const [pageDescription,setPageDescription] = useState('');\n  const [pageDestination,setPageDestination] = useState('');\n  const [editingPage,setEditingPage] = useState<string|null>(null);\n  const [pageSaving,setPageSaving] = useState(false);\n  const [pageError,setPageError] = useState('');
+  const [toast,setToast] = useState('');
+  const [pages,setPages] = useState<Page[]>([]);
+  const [pagesLoading,setPagesLoading] = useState(false);
+  const [pageTitle,setPageTitle] = useState('');
+  const [pageDescription,setPageDescription] = useState('');
+  const [pageDestination,setPageDestination] = useState('');
+  const [editingPage,setEditingPage] = useState<string|null>(null);
+  const [pageSaving,setPageSaving] = useState(false);
+  const [pageError,setPageError] = useState('');
   useEffect(()=>{ fetch('/api/auth/me').then(r=>r.ok?r.json():null).then(d=>{if(d?.user)setUser(d.user)}).catch(()=>{}); },[]);
-  useEffect(()=>{ if(user && view==='My Pages') loadPages(); },[user,view]);\n  async function loadPages(){setPagesLoading(true);setPageError('');try{const res=await fetch('/api/pages');const data=await res.json();if(!res.ok)throw new Error(data.error||'Could not load pages.');setPages(data.pages||[]);}catch(err){setPageError(err instanceof Error?err.message:'Could not load pages.');}finally{setPagesLoading(false);}}\n  function resetPageForm(){setEditingPage(null);setPageTitle('');setPageDescription('');setPageDestination('');setPageError('');}\n  async function savePage(e:FormEvent){e.preventDefault();setPageSaving(true);setPageError('');try{const res=await fetch(editingPage?'/api/pages/'+editingPage:'/api/pages',{method:editingPage?'PUT':'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({title:pageTitle,description:pageDescription,destinationUrl:pageDestination})});const data=await res.json();if(!res.ok)throw new Error(data.error||'Could not save page.');resetPageForm();await loadPages();notify(editingPage?'Page updated.':'Page created.');}catch(err){setPageError(err instanceof Error?err.message:'Could not save page.');}finally{setPageSaving(false);}}\n  async function removePage(id:string){if(!window.confirm('Delete this page?'))return;try{const res=await fetch('/api/pages/'+id,{method:'DELETE'});const data=await res.json();if(!res.ok)throw new Error(data.error||'Could not delete page.');setPages(current=>current.filter(p=>p.id!==id));notify('Page deleted.');}catch(err){setPageError(err instanceof Error?err.message:'Could not delete page.');}}\n  const initials = useMemo(()=> (user?.displayName||user?.email||'JD').slice(0,2).toUpperCase(),[user]);
+  useEffect(()=>{ if(user && view==='My Pages') loadPages(); },[user,view]);
+  async function loadPages(){setPagesLoading(true);setPageError('');try{const res=await fetch('/api/pages');const data=await res.json();if(!res.ok)throw new Error(data.error||'Could not load pages.');setPages(data.pages||[]);}catch(err){setPageError(err instanceof Error?err.message:'Could not load pages.');}finally{setPagesLoading(false);}}
+  function resetPageForm(){setEditingPage(null);setPageTitle('');setPageDescription('');setPageDestination('');setPageError('');}
+  async function savePage(e:FormEvent){e.preventDefault();setPageSaving(true);setPageError('');try{const res=await fetch(editingPage?'/api/pages/'+editingPage:'/api/pages',{method:editingPage?'PUT':'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({title:pageTitle,description:pageDescription,destinationUrl:pageDestination})});const data=await res.json();if(!res.ok)throw new Error(data.error||'Could not save page.');resetPageForm();await loadPages();notify(editingPage?'Page updated.':'Page created.');}catch(err){setPageError(err instanceof Error?err.message:'Could not save page.');}finally{setPageSaving(false);}}
+  async function removePage(id:string){if(!window.confirm('Delete this page?'))return;try{const res=await fetch('/api/pages/'+id,{method:'DELETE'});const data=await res.json();if(!res.ok)throw new Error(data.error||'Could not delete page.');setPages(current=>current.filter(p=>p.id!==id));notify('Page deleted.');}catch(err){setPageError(err instanceof Error?err.message:'Could not delete page.');}}
+  const initials = useMemo(()=> (user?.displayName||user?.email||'JD').slice(0,2).toUpperCase(),[user]);
   async function submitAuth(e: FormEvent) {
     e.preventDefault(); setBusy(true); setError('');
     try {
