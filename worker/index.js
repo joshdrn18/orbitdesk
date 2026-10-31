@@ -261,6 +261,47 @@ export default {
     await env.DB.prepare("UPDATE pages SET title=?,description=?,destination_url=?,updated_at=? WHERE id=? AND user_id=?").bind(title,description,destination,Date.now(),page.id,user.id).run();
     return json({ok:true},200,headers);
    }
+   if(url.pathname==="/api/products" && request.method==="GET") {
+    if(!(await isToolEnabled(env,"products"))) return json({error:"Products is temporarily disabled."},503,headers);
+    const user=await currentUser(request,env); if(!user) return json({error:"Please sign in to continue."},401,headers);
+    const rows=await env.DB.prepare("SELECT id,name,description,price_cents,currency,category,image_url,status,created_at,updated_at FROM products WHERE user_id=? ORDER BY created_at DESC").bind(user.id).all();
+    return json({products:rows.results||[]},200,headers);
+   }
+   if(url.pathname==="/api/products" && request.method==="POST") {
+    if(!(await isToolEnabled(env,"products"))) return json({error:"Products is temporarily disabled."},503,headers);
+    const user=await currentUser(request,env); if(!user) return json({error:"Please sign in to continue."},401,headers);
+    const body=await request.json(); const name=String(body.name||"").trim(); const description=String(body.description||"").trim(); const category=String(body.category||"").trim(); const imageUrl=String(body.image_url||"").trim(); const currency=String(body.currency||"USD").toUpperCase(); const price=Number(body.price_cents); const status=String(body.status||"active");
+    if(name.length<2||name.length>120) return json({error:"Product name must be 2–120 characters."},400,headers);
+    if(description.length>2000||category.length>60) return json({error:"Description or category is too long."},400,headers);
+    if(!Number.isInteger(price)||price<0||price>100000000000) return json({error:"Enter a valid product price."},400,headers);
+    if(!["USD","MYR","IDR","SGD","EUR","GBP"].includes(currency)) return json({error:"Unsupported currency."},400,headers);
+    if(imageUrl && (!/^https:\/\//i.test(imageUrl)||imageUrl.length>2048)) return json({error:"Product image must be a valid HTTPS URL."},400,headers);
+    if(!["active","draft","archived"].includes(status)) return json({error:"Invalid product status."},400,headers);
+    const count=await env.DB.prepare("SELECT COUNT(*) AS total FROM products WHERE user_id=?").bind(user.id).first();
+    const plan=await env.DB.prepare("SELECT limits_json FROM plans WHERE id=?").bind(user.plan).first();
+    const override=await env.DB.prepare("SELECT limits_json FROM user_limit_overrides WHERE user_id=?").bind(user.id).first();
+    const baseLimits=JSON.parse(plan?.limits_json||'{"products":10}'); const customLimits=JSON.parse(override?.limits_json||"{}"); const limit={...baseLimits,...customLimits}.products??10;
+    if(limit!==-1 && Number(count?.total||0)>=limit) return json({error:"You have reached your product limit for this plan."},403,headers);
+    const id=crypto.randomUUID(); const now=Date.now();
+    await env.DB.prepare("INSERT INTO products (id,user_id,name,description,price_cents,currency,category,image_url,status,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?)").bind(id,user.id,name,description,price,currency,category,imageUrl,status,now,now).run();
+    return json({ok:true,id},201,headers);
+   }
+   const productMatch=url.pathname.match(/^\/api\/products\/([a-f0-9-]+)$/i);
+   if(productMatch && ["PUT","DELETE"].includes(request.method)) {
+    if(!(await isToolEnabled(env,"products"))) return json({error:"Products is temporarily disabled."},503,headers);
+    const user=await currentUser(request,env); if(!user) return json({error:"Please sign in to continue."},401,headers);
+    const product=await env.DB.prepare("SELECT id FROM products WHERE id=? AND user_id=?").bind(productMatch[1],user.id).first();
+    if(!product) return json({error:"Product not found."},404,headers);
+    if(request.method==="DELETE") { await env.DB.prepare("DELETE FROM products WHERE id=? AND user_id=?").bind(product.id,user.id).run(); return json({ok:true},200,headers); }
+    const body=await request.json(); const name=String(body.name||"").trim(); const description=String(body.description||"").trim(); const category=String(body.category||"").trim(); const imageUrl=String(body.image_url||"").trim(); const currency=String(body.currency||"USD").toUpperCase(); const price=Number(body.price_cents); const status=String(body.status||"active");
+    if(name.length<2||name.length>120||description.length>2000||category.length>60) return json({error:"Check product name, description and category."},400,headers);
+    if(!Number.isInteger(price)||price<0||price>100000000000) return json({error:"Enter a valid product price."},400,headers);
+    if(!["USD","MYR","IDR","SGD","EUR","GBP"].includes(currency)) return json({error:"Unsupported currency."},400,headers);
+    if(imageUrl && (!/^https:\/\//i.test(imageUrl)||imageUrl.length>2048)) return json({error:"Product image must be a valid HTTPS URL."},400,headers);
+    if(!["active","draft","archived"].includes(status)) return json({error:"Invalid product status."},400,headers);
+    await env.DB.prepare("UPDATE products SET name=?,description=?,price_cents=?,currency=?,category=?,image_url=?,status=?,updated_at=? WHERE id=? AND user_id=?").bind(name,description,price,currency,category,imageUrl,status,Date.now(),product.id,user.id).run();
+    return json({ok:true},200,headers);
+   }
    if(url.pathname==="/api/bio" && request.method==="GET") {
     if(!(await isToolEnabled(env,"bio_pages"))) return json({error:"Bio Pages is temporarily disabled."},503,headers);
     const user=await currentUser(request,env); if(!user) return json({error:"Please sign in to continue."},401,headers);
