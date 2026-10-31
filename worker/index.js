@@ -201,6 +201,8 @@ export default {
      if(title.length<3||title.length>100||message.length<3||message.length>1000) return json({error:"Title must be 3–100 characters and message 3–1000 characters."},400,headers);
      const id=crypto.randomUUID();
      await env.DB.prepare("INSERT INTO announcements (id,title,message,is_active,created_by,created_at) VALUES (?,?,?,1,?,?)").bind(id,title,message,admin.id,Date.now()).run();
+     await env.DB.prepare("INSERT INTO system_settings (setting_key,setting_value,updated_by,updated_at) VALUES ('announcement_enabled','true',?,?) ON CONFLICT(setting_key) DO UPDATE SET setting_value='true',updated_by=excluded.updated_by,updated_at=excluded.updated_at").bind(admin.id,Date.now()).run();
+     await env.DB.prepare("INSERT INTO system_settings (setting_key,setting_value,updated_by,updated_at) VALUES ('announcement_message',?,?,?) ON CONFLICT(setting_key) DO UPDATE SET setting_value=excluded.setting_value,updated_by=excluded.updated_by,updated_at=excluded.updated_at").bind(title+": "+message,admin.id,Date.now()).run();
      await audit("announcement.created","announcement",id,{title});
      return json({ok:true,id},201,headers);
     }
