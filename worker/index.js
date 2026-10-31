@@ -29,7 +29,6 @@ export default {
  async fetch(request,env) {
   const url=new URL(request.url); const headers=corsHeaders(request,env);
   if(request.method==="OPTIONS") return new Response(null,{status:204,headers:{...headers,"access-control-allow-methods":"GET,POST,OPTIONS","access-control-allow-headers":"Content-Type"}});
-  let diagnosticStage="route";
   try {
    if(url.pathname==="/api/health" && request.method==="GET") return json({ok:true,service:"OrbitDesk API",version:"0.1.0"});
    if(url.pathname==="/api/health/db" && request.method==="GET") {
@@ -43,19 +42,14 @@ export default {
     }
    }
    if(url.pathname==="/api/auth/register" && request.method==="POST") {
-    diagnosticStage="register:parse_body";
     const body=await request.json(); const email=String(body.email||"").trim().toLowerCase(); const displayName=String(body.displayName||"").trim(); const password=String(body.password||"");
     if(!validEmail(email)) return json({error:"Enter a valid email address."},400,headers);
     if(displayName.length<2||displayName.length>60) return json({error:"Name must be between 2 and 60 characters."},400,headers);
     if(password.length<10||password.length>128) return json({error:"Password must be between 10 and 128 characters."},400,headers);
-    diagnosticStage="register:check_existing_email";
     const existing=await env.DB.prepare("SELECT id FROM users WHERE email=?").bind(email).first();
     if(existing) return json({error:"An account with this email already exists."},409,headers);
-    diagnosticStage="register:hash_password";
     const id=crypto.randomUUID(); const record=await passwordRecord(password);
-    diagnosticStage="register:insert_user";
     await env.DB.prepare("INSERT INTO users (id,email,display_name,password_hash,password_salt,role,plan,status,created_at) VALUES (?,?,?,?,?,'user','free','active',?)").bind(id,email,displayName,record.hash,record.salt,Date.now()).run();
-    diagnosticStage="register:create_session";
     const token=random(32); await env.DB.prepare("INSERT INTO user_sessions (id,user_id,token_hash,expires_at,created_at) VALUES (?,?,?,?,?)").bind(crypto.randomUUID(),id,await sha(token),Date.now()+2592000000,Date.now()).run();
     return json({user:{id,email,displayName,role:"user",plan:"free"}},201,{...headers,"set-cookie":cookie("od_session",token,2592000)});
    }
@@ -77,12 +71,45 @@ export default {
     const token=getCookie(request,"od_session"); if(token) await env.DB.prepare("DELETE FROM user_sessions WHERE token_hash=?").bind(await sha(token)).run();
     return json({ok:true},200,{...headers,"set-cookie":cookie("od_session","",0)});
    }
+
+   if(url.pathname==="/api/pages" && request.method==="GET") {
+    const user=await currentUser(request,env); if(!user) return json({error:"Please sign in to continue."},401,headers);
+    const result=await env.DB.prepare("SELECT id,title,slug,description,destination_url,status,created_at,updated_at FROM pages WHERE user_id=? ORDER BY created_at DESC").bind(user.id).all();
+    return json({pages:result.results||[]},200,headers);
+   }
+   if(url.pathname==="/api/pages" && request.method==="POST") {
+    const user=await currentUser(request,env); if(!user) return json({error:"Please sign in to continue."},401,headers);
+    const body=await request.json(); const title=String(body.title||"").trim(); const description=String(body.description||"").trim(); const destination=String(body.destinationUrl||"").trim();
+    if(title.length<2||title.length>80) return json({error:"Page title must be between 2 and 80 characters."},400,headers);
+    if(!/^https?:\\/\\//i.test(destination)||destination.length>2048) return json({error:"Enter a valid destination URL starting with http:// or https://."},400,headers);
+    const count=await env.DB.prepare("SELECT COUNT(*) AS total FROM pages WHERE user_id=? AND status!='deleted'").bind(user.id).first();
+    const plan=await env.DB.prepare("SELECT limits_json FROM plans WHERE id=?").bind(user.plan).first();
+    const limit=JSON.parse(plan?.limits_json||'{"pages":1}').pages;
+    if(limit!==-1 && Number(count?.total||0)>=limit) return json({error:"Your Free plan allows 1 page. Upgrade to create more."},403,headers);
+    const id=crypto.randomUUID(); const slug=random(6).toLowerCase().replace(/[^a-z0-9]/g,"").slice(0,8);
+    await env.DB.prepare("INSERT INTO pages (id,user_id,title,slug,description,destination_url,status,created_at,updated_at) VALUES (?,?,?,?,?,?,'active',?,?)").bind(id,user.id,title,slug,description,destination,Date.now(),Date.now()).run();
+    return json({page:{id,title,slug,description,destination_url:destination,status:"active",created_at:Date.now()}},201,headers);
+   }
+   const pageMatch=url.pathname.match(/^\\/api\\/pages\\/([a-f0-9-]+)$/i);
+   if(pageMatch && ["PUT","DELETE"].includes(request.method)) {
+    const user=await currentUser(request,env); if(!user) return json({error:"Please sign in to continue."},401,headers);
+    const page=await env.DB.prepare("SELECT id FROM pages WHERE id=? AND user_id=? AND status!='deleted'").bind(pageMatch[1],user.id).first();
+    if(!page) return json({error:"Page not found."},404,headers);
+    if(request.method==="DELETE") {
+     await env.DB.prepare("UPDATE pages SET status='deleted',updated_at=? WHERE id=? AND user_id=?").bind(Date.now(),page.id,user.id).run();
+     return json({ok:true},200,headers);
+    }
+    const body=await request.json(); const title=String(body.title||"").trim(); const description=String(body.description||"").trim(); const destination=String(body.destinationUrl||"").trim();
+    if(title.length<2||title.length>80) return json({error:"Page title must be between 2 and 80 characters."},400,headers);
+    if(!/^https?:\\/\\//i.test(destination)||destination.length>2048) return json({error:"Enter a valid destination URL starting with http:// or https://."},400,headers);
+    await env.DB.prepare("UPDATE pages SET title=?,description=?,destination_url=?,updated_at=? WHERE id=? AND user_id=?").bind(title,description,destination,Date.now(),page.id,user.id).run();
+    return json({ok:true},200,headers);
+   }
    if(url.pathname.startsWith("/api/")) return json({error:"API endpoint not found."},404,headers);
    return env.ASSETS.fetch(request);
   } catch(error) {
    console.error("OrbitDesk API error",error);
-   const detail=String(error?.message||error).slice(0,220);
-   return json({error:`${diagnosticStage}: ${detail}`},500,headers);
+   return json({error:"Something went wrong. Please try again."},500,headers);
   }
  }
 };
