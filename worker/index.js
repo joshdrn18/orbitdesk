@@ -273,7 +273,7 @@ export default {
     const body=await request.json(); const title=String(body.title||"").trim(); const description=String(body.description||"").trim(); const slug=String(body.slug||"").trim().toLowerCase(); const fields=Array.isArray(body.fields)?body.fields:[]; const status=String(body.status||"draft");
     if(title.length<2||title.length>100||description.length>500) return json({error:"Form title must be 2–100 characters and description up to 500 characters."},400,headers);
     if(!/^[a-z0-9][a-z0-9-]{2,39}$/.test(slug)) return json({error:"Form URL must be 3–40 characters using letters, numbers and hyphens."},400,headers);
-    if(fields.length>30||!["draft","published","closed"].includes(status)) return json({error:"A form can have up to 30 questions and a valid status."},400,headers);
+    if(fields.length>30||!["draft","published","closed"].includes(status)||(status==="published"&&fields.length===0)) return json({error:"Add at least one question before publishing. Forms can have up to 30 questions."},400,headers);
     for(const field of fields){if(!field||typeof field!=="object"||!String(field.label||"").trim()||String(field.label).length>120||!["text","email","textarea","select","checkbox"].includes(field.type)||((field.type==="select")&&(!Array.isArray(field.options)||field.options.length<1||field.options.length>20)))return json({error:"Check your questions. Each question needs a label and valid field type/options."},400,headers);}
     const count=await env.DB.prepare("SELECT COUNT(*) AS total FROM forms WHERE user_id=?").bind(user.id).first();
     const plan=await env.DB.prepare("SELECT limits_json FROM plans WHERE id=?").bind(user.plan).first();
@@ -295,7 +295,7 @@ export default {
     }
     if(!formMatch[2]&&request.method==="PUT"){
      const body=await request.json();const title=String(body.title||"").trim();const description=String(body.description||"").trim();const slug=String(body.slug||"").trim().toLowerCase();const fields=Array.isArray(body.fields)?body.fields:[];const status=String(body.status||"draft");
-     if(title.length<2||title.length>100||description.length>500||!/^[a-z0-9][a-z0-9-]{2,39}$/.test(slug)||fields.length>30||!["draft","published","closed"].includes(status))return json({error:"Check your form details and publishing status."},400,headers);
+     if(title.length<2||title.length>100||description.length>500||!/^[a-z0-9][a-z0-9-]{2,39}$/.test(slug)||fields.length>30||!["draft","published","closed"].includes(status)||(status==="published"&&fields.length===0))return json({error:"Add at least one question before publishing and check your form details."},400,headers);
      for(const field of fields){if(!field||!String(field.label||"").trim()||String(field.label).length>120||!["text","email","textarea","select","checkbox"].includes(field.type)||field.type==="select"&&(!Array.isArray(field.options)||field.options.length<1||field.options.length>20))return json({error:"Check your questions and options."},400,headers);}
      const conflict=await env.DB.prepare("SELECT id FROM forms WHERE slug=? COLLATE NOCASE AND id!=?").bind(slug,form.id).first();if(conflict)return json({error:"That form URL is already taken."},409,headers);
      await env.DB.prepare("UPDATE forms SET title=?,description=?,slug=?,fields_json=?,status=?,updated_at=? WHERE id=? AND user_id=?").bind(title,description,slug,JSON.stringify(fields),status,Date.now(),form.id,user.id).run();
