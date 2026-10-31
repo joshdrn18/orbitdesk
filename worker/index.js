@@ -72,6 +72,13 @@ export default {
     return json({ok:true},200,{...headers,"set-cookie":cookie("od_session","",0)});
    }
 
+
+   const publicPageMatch=url.pathname.match(/^\\/p\\/([a-z0-9]+)$/i);
+   if(publicPageMatch && request.method==="GET") {
+    const page=await env.DB.prepare("SELECT destination_url FROM pages WHERE slug=? AND status='active'").bind(publicPageMatch[1]).first();
+    if(!page) return new Response("Page not found.",{status:404,headers:{"content-type":"text/plain; charset=utf-8"}});
+    return Response.redirect(page.destination_url,302);
+   }
    if(url.pathname==="/api/pages" && request.method==="GET") {
     const user=await currentUser(request,env); if(!user) return json({error:"Please sign in to continue."},401,headers);
     const result=await env.DB.prepare("SELECT id,title,slug,description,destination_url,status,created_at,updated_at FROM pages WHERE user_id=? ORDER BY created_at DESC").bind(user.id).all();
@@ -81,7 +88,7 @@ export default {
     const user=await currentUser(request,env); if(!user) return json({error:"Please sign in to continue."},401,headers);
     const body=await request.json(); const title=String(body.title||"").trim(); const description=String(body.description||"").trim(); const destination=String(body.destinationUrl||"").trim();
     if(title.length<2||title.length>80) return json({error:"Page title must be between 2 and 80 characters."},400,headers);
-    if(!/^https?:\\/\\//i.test(destination)||destination.length>2048) return json({error:"Enter a valid destination URL starting with http:// or https://."},400,headers);
+    if(!/^https?:\/\//i.test(destination)||destination.length>2048) return json({error:"Enter a valid destination URL starting with http:// or https://."},400,headers);
     const count=await env.DB.prepare("SELECT COUNT(*) AS total FROM pages WHERE user_id=? AND status!='deleted'").bind(user.id).first();
     const plan=await env.DB.prepare("SELECT limits_json FROM plans WHERE id=?").bind(user.plan).first();
     const limit=JSON.parse(plan?.limits_json||'{"pages":1}').pages;
@@ -90,7 +97,7 @@ export default {
     await env.DB.prepare("INSERT INTO pages (id,user_id,title,slug,description,destination_url,status,created_at,updated_at) VALUES (?,?,?,?,?,?,'active',?,?)").bind(id,user.id,title,slug,description,destination,Date.now(),Date.now()).run();
     return json({page:{id,title,slug,description,destination_url:destination,status:"active",created_at:Date.now()}},201,headers);
    }
-   const pageMatch=url.pathname.match(/^\\/api\\/pages\\/([a-f0-9-]+)$/i);
+   const pageMatch=url.pathname.match(/^\/api\/pages\/([a-f0-9-]+)$/i);
    if(pageMatch && ["PUT","DELETE"].includes(request.method)) {
     const user=await currentUser(request,env); if(!user) return json({error:"Please sign in to continue."},401,headers);
     const page=await env.DB.prepare("SELECT id FROM pages WHERE id=? AND user_id=? AND status!='deleted'").bind(pageMatch[1],user.id).first();
@@ -101,7 +108,7 @@ export default {
     }
     const body=await request.json(); const title=String(body.title||"").trim(); const description=String(body.description||"").trim(); const destination=String(body.destinationUrl||"").trim();
     if(title.length<2||title.length>80) return json({error:"Page title must be between 2 and 80 characters."},400,headers);
-    if(!/^https?:\\/\\//i.test(destination)||destination.length>2048) return json({error:"Enter a valid destination URL starting with http:// or https://."},400,headers);
+    if(!/^https?:\/\//i.test(destination)||destination.length>2048) return json({error:"Enter a valid destination URL starting with http:// or https://."},400,headers);
     await env.DB.prepare("UPDATE pages SET title=?,description=?,destination_url=?,updated_at=? WHERE id=? AND user_id=?").bind(title,description,destination,Date.now(),page.id,user.id).run();
     return json({ok:true},200,headers);
    }
