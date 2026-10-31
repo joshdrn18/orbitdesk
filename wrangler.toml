@@ -5,7 +5,7 @@ pages_build_output_dir = "./dist"
 [[d1_databases]]
 binding = "DB"
 database_name = "orbitdesk-db"
-database_id = "REPLACE_WITH_D1_DATABASE_ID"
+database_id = "679c611b-e0c6-4dde-9a11-6e7c29ada9e4"
 migrations_dir = "migrations"
 
 # Optional: configure these after creating the resources in Cloudflare.
