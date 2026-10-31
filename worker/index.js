@@ -87,13 +87,13 @@ export default {
     if(verification.verification_status!=="SUCCESS") return json({error:"Invalid PayPal webhook signature."},401);
     const resource=event.resource&&typeof event.resource==="object"?event.resource:{};
     try {
-     await env.DB.prepare("INSERT OR IGNORE INTO paypal_webhook_events (event_id,event_type,resource_id,resource_status,event_create_time,received_at) VALUES (?,?,?,?,?,?)")
+     const saved=await env.DB.prepare("INSERT OR IGNORE INTO paypal_webhook_events (event_id,event_type,resource_id,resource_status,event_create_time,received_at) VALUES (?,?,?,?,?,?)")
       .bind(String(event.id),String(event.event_type).slice(0,120),String(resource.id||"").slice(0,180),String(resource.status||"").slice(0,80),String(event.create_time||"").slice(0,80),Date.now()).run();
+     return json({ok:true,verified:true,duplicate:!saved.meta?.changes},200);
     } catch(dbError) {
      console.error("Could not persist verified PayPal webhook event:",dbError);
      return json({error:"Verified event could not be saved. Retry later."},500);
     }
-    return json({ok:true,verified:true,duplicate:false},200);
    }
    if(url.pathname==="/api/health" && request.method==="GET") return json({ok:true,service:"OrbitDesk API",version:"0.1.0"});
    if(url.pathname==="/api/health/db" && request.method==="GET") {
