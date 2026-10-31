@@ -42,7 +42,7 @@ function App() {
   const [qrForeground,setQrForeground] = useState('#17152b');
   const [qrBackground,setQrBackground] = useState('#ffffff');
   const [qrSize,setQrSize] = useState('512');
-  const [qrCorrection,setQrCorrection] = useState('H');
+  const [qrCorrection,setQrCorrection] = useState<'L'|'M'|'Q'|'H'>('H');
   const [qrImage,setQrImage] = useState('');
   const [qrError,setQrError] = useState('');
   useEffect(()=>{
