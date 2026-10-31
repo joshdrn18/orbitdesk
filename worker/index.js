@@ -32,6 +32,69 @@ export default {
   const url=new URL(request.url); const headers=corsHeaders(request,env);
   if(request.method==="OPTIONS") return new Response(null,{status:204,headers:{...headers,"access-control-allow-methods":"GET,POST,OPTIONS","access-control-allow-headers":"Content-Type"}});
   try {
+   // PayPal subscription webhook. Verify every notification with PayPal before recording it.
+   if(url.pathname==="/api/paypal/webhook" && request.method==="GET") {
+    return json({ok:true,service:"OrbitDesk PayPal webhook",method:"POST"});
+   }
+   if(url.pathname==="/api/paypal/webhook" && request.method==="POST") {
+    const clientId=env.PAYPAL_CLIENT_ID;
+    const clientSecret=env.PAYPAL_CLIENT_SECRET;
+    const webhookId=env.PAYPAL_WEBHOOK_ID;
+    const paypalEnv=String(env.PAYPAL_ENV||"sandbox").toLowerCase();
+    if(!clientId||!clientSecret||!webhookId||!["sandbox","live"].includes(paypalEnv)) {
+     console.error("PayPal webhook configuration is incomplete.");
+     return json({error:"PayPal webhook is not configured."},503);
+    }
+    const event=await request.json().catch(()=>null);
+    if(!event||typeof event!=="object"||!event.id||!event.event_type) return json({error:"Invalid webhook event."},400);
+    const transmissionId=request.headers.get("PAYPAL-TRANSMISSION-ID");
+    const transmissionTime=request.headers.get("PAYPAL-TRANSMISSION-TIME");
+    const transmissionSig=request.headers.get("PAYPAL-TRANSMISSION-SIG");
+    const certUrl=request.headers.get("PAYPAL-CERT-URL");
+    const authAlgo=request.headers.get("PAYPAL-AUTH-ALGO");
+    if(!transmissionId||!transmissionTime||!transmissionSig||!certUrl||!authAlgo) return json({error:"Missing PayPal signature headers."},400);
+    const apiBase=paypalEnv==="live"?"https://api-m.paypal.com":"https://api-m.sandbox.paypal.com";
+    const credentials=btoa(clientId+":"+clientSecret);
+    const tokenResponse=await fetch(apiBase+"/v1/oauth2/token",{
+     method:"POST",
+     headers:{Authorization:"Basic "+credentials,"Content-Type":"application/x-www-form-urlencoded"},
+     body:"grant_type=client_credentials"
+    });
+    if(!tokenResponse.ok) {
+     console.error("PayPal OAuth token request failed:",tokenResponse.status);
+     return json({error:"Could not authenticate with PayPal."},502);
+    }
+    const tokenData=await tokenResponse.json();
+    if(!tokenData.access_token) return json({error:"PayPal did not return an access token."},502);
+    const verifyResponse=await fetch(apiBase+"/v1/notifications/verify-webhook-signature",{
+     method:"POST",
+     headers:{Authorization:"Bearer "+tokenData.access_token,"Content-Type":"application/json"},
+     body:JSON.stringify({
+      auth_algo:authAlgo,
+      cert_url:certUrl,
+      transmission_id:transmissionId,
+      transmission_sig:transmissionSig,
+      transmission_time:transmissionTime,
+      webhook_id:webhookId,
+      webhook_event:event
+     })
+    });
+    if(!verifyResponse.ok) {
+     console.error("PayPal webhook verification request failed:",verifyResponse.status);
+     return json({error:"PayPal signature verification failed."},502);
+    }
+    const verification=await verifyResponse.json();
+    if(verification.verification_status!=="SUCCESS") return json({error:"Invalid PayPal webhook signature."},401);
+    const resource=event.resource&&typeof event.resource==="object"?event.resource:{};
+    try {
+     await env.DB.prepare("INSERT OR IGNORE INTO paypal_webhook_events (event_id,event_type,resource_id,resource_status,event_create_time,received_at) VALUES (?,?,?,?,?,?)")
+      .bind(String(event.id),String(event.event_type).slice(0,120),String(resource.id||"").slice(0,180),String(resource.status||"").slice(0,80),String(event.create_time||"").slice(0,80),Date.now()).run();
+    } catch(dbError) {
+     console.error("Could not persist verified PayPal webhook event:",dbError);
+     return json({error:"Verified event could not be saved. Retry later."},500);
+    }
+    return json({ok:true,verified:true,duplicate:false},200);
+   }
    if(url.pathname==="/api/health" && request.method==="GET") return json({ok:true,service:"OrbitDesk API",version:"0.1.0"});
    if(url.pathname==="/api/health/db" && request.method==="GET") {
     try {
