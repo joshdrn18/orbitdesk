@@ -4,7 +4,7 @@ export async function onRequest({ request, env, params }) {
   const username = String(params.username || "").toLowerCase();
   if (!/^[a-z0-9_]{3,24}$/.test(username)) return new Response("Profile not found.", {status:404});
   try {
-    const profile = await env.DB.prepare("SELECT id,username,display_name,bio,avatar_url,theme FROM bio_profiles WHERE username=? COLLATE NOCASE").bind(username).first();
+    const profile = await env.DB.prepare("SELECT id,user_id,username,display_name,bio,avatar_url,theme FROM bio_profiles WHERE username=? COLLATE NOCASE").bind(username).first();
     if (!profile) return new Response("Profile not found.", {status:404,headers:{"content-type":"text/plain; charset=utf-8"}});
     const result = await env.DB.prepare("SELECT title,url,icon FROM bio_links WHERE profile_id=? AND is_active=1 ORDER BY position ASC").bind(profile.id).all();
     const links = result.results || [];
