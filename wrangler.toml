@@ -1,0 +1,26 @@
+name = "orbitdesk"
+main = "worker/index.js"
+compatibility_date = "2026-10-31"
+
+[assets]
+directory = "./dist"
+binding = "ASSETS"
+not_found_handling = "single-page-application"
+
+[[d1_databases]]
+binding = "DB"
+database_name = "orbitdesk-db"
+database_id = "REPLACE_WITH_D1_DATABASE_ID"
+migrations_dir = "migrations"
+
+# Optional: configure these after creating the resources in Cloudflare.
+# [[r2_buckets]]
+# binding = "MEDIA"
+# bucket_name = "orbitdesk-media"
+
+# [[kv_namespaces]]
+# binding = "CACHE"
+# id = "REPLACE_WITH_KV_NAMESPACE_ID"
+
+[vars]
+SITE_ORIGIN = "https://orbitdesk.pages.dev"
