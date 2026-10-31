@@ -96,3 +96,32 @@
 .workspace-plan-line strong{color:#c3b8ff;font-size:9px}
 .workspace-popover>button{width:100%;display:flex;align-items:center;gap:8px;border:0;border-radius:7px;background:#24213d;color:#c9c0ff;padding:9px;font-size:9px;text-align:left}
 .workspace-popover>button svg:last-child{margin-left:auto}
+
+
+/* QR Studio */
+.qr-studio-layout{display:grid;grid-template-columns:minmax(280px,1fr) minmax(280px,.9fr);gap:16px;align-items:start}
+.qr-editor-panel,.qr-preview-panel{min-width:0}
+.qr-form{margin-top:20px}
+.qr-form textarea{resize:vertical;min-height:100px;line-height:1.6}
+.qr-options-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.qr-options-grid select{width:100%;border:1px solid #30374b;background:#0b0f1a;border-radius:8px;padding:11px 12px;color:#fff;outline:none;font:inherit;font-size:11px}
+.qr-color-row{display:flex;align-items:end;gap:14px;flex-wrap:wrap}
+.qr-color-row label{display:flex;align-items:center;gap:8px}
+.qr-color-row input[type=color]{width:38px;height:32px;padding:3px;border:1px solid #30374b;border-radius:7px;background:#0b0f1a;cursor:pointer}
+.qr-color-row .text-btn{margin-left:auto}
+.qr-form-foot{display:flex;align-items:center;justify-content:space-between;gap:12px;border-top:1px solid var(--line);padding-top:15px;margin-top:5px}
+.qr-form-foot>span{display:flex;align-items:center;gap:7px;color:#8f9ab0;font-size:9px}
+.qr-form-foot>span svg{color:#9de2bf}
+.qr-form-foot .primary-btn{display:inline-flex;align-items:center;gap:8px;text-decoration:none}
+.qr-preview-panel{position:sticky;top:18px}
+.qr-preview-stage{min-height:340px;margin-top:18px;border:1px dashed #343b50;border-radius:13px;background:radial-gradient(circle at 50% 40%,#25213e,#111624 70%);display:grid;place-items:center;padding:22px}
+.qr-image-wrap{width:min(100%,290px);aspect-ratio:1;padding:12px;border-radius:13px;box-shadow:0 16px 45px #0006}
+.qr-image-wrap img{display:block;width:100%;height:100%;object-fit:contain}
+.qr-preview-empty{display:grid;justify-items:center;gap:12px;color:#78839b;font-size:10px}
+.qr-preview-empty svg{color:#a99cff}
+.qr-preview-meta{display:grid;grid-template-columns:1fr 1fr;gap:10px;padding-top:15px}
+.qr-preview-meta>div{display:grid;gap:5px;min-width:0}
+.qr-preview-meta small{font-size:7px;letter-spacing:1px;color:#78839b}
+.qr-preview-meta strong{font-size:9px;color:#d5d8e5;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+@media(max-width:900px){.qr-studio-layout{grid-template-columns:1fr}.qr-preview-panel{position:static}}
+@media(max-width:520px){.qr-preview-stage{min-height:280px}.qr-form-foot{align-items:flex-start;flex-direction:column}.qr-options-grid{grid-template-columns:1fr}}
