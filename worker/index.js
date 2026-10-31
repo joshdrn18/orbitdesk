@@ -132,6 +132,7 @@ export default {
     if(links.length>20) return json({error:"You can add up to 20 links."},400,headers);
     for(const item of links){
       const title=String(item?.title||"").trim(); const linkUrl=String(item?.url||"").trim();
+      if(!title||title.length>60||!/^https?:\\/\\//i.test(linkUrl)||linkUrl.length>2048) return json({error:"Each link needs a title and a valid http(s) URL."},400,headers);
     }
     const existing=await env.DB.prepare("SELECT id FROM bio_profiles WHERE user_id=?").bind(user.id).first();
     const conflict=await env.DB.prepare("SELECT id,user_id FROM bio_profiles WHERE username=? COLLATE NOCASE").bind(username).first();
