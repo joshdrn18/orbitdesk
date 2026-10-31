@@ -224,7 +224,10 @@ export default {
     if(!/^https?:\/\//i.test(destination)||destination.length>2048) return json({error:"Enter a valid destination URL starting with http:// or https://."},400,headers);
     const count=await env.DB.prepare("SELECT COUNT(*) AS total FROM pages WHERE user_id=? AND status!='deleted'").bind(user.id).first();
     const plan=await env.DB.prepare("SELECT limits_json FROM plans WHERE id=?").bind(user.plan).first();
-    const limit=JSON.parse(plan?.limits_json||'{"pages":1}').pages;
+    const override=await env.DB.prepare("SELECT limits_json FROM user_limit_overrides WHERE user_id=?").bind(user.id).first();
+    const baseLimits=JSON.parse(plan?.limits_json||'{"pages":1}');
+    const customLimits=JSON.parse(override?.limits_json||"{}");
+    const limit={...baseLimits,...customLimits}.pages??1;
     if(limit!==-1 && Number(count?.total||0)>=limit) return json({error:"Your Free plan allows 1 page. Upgrade to create more."},403,headers);
     const id=crypto.randomUUID(); const slug=random(6).toLowerCase().replace(/[^a-z0-9]/g,"").slice(0,8);
     await env.DB.prepare("INSERT INTO pages (id,user_id,title,slug,description,destination_url,status,created_at,updated_at) VALUES (?,?,?,?,?,?,'active',?,?)").bind(id,user.id,title,slug,description,destination,Date.now(),Date.now()).run();
