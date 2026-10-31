@@ -21,9 +21,39 @@ async function currentUser(request,env) {
   const token=getCookie(request,"od_session"); if(!token) return null;
   const session=await env.DB.prepare("SELECT user_id, expires_at FROM user_sessions WHERE token_hash = ? AND expires_at > ?").bind(await sha(token),Date.now()).first();
   if(!session) return null;
-  return env.DB.prepare("SELECT id,email,display_name,role,plan FROM users WHERE id=? AND status='active'").bind(session.user_id).first();
+  const user=await env.DB.prepare("SELECT id,email,display_name,role,plan FROM users WHERE id=? AND status='active'").bind(session.user_id).first();
+  if(user) {
+   try {
+    const expiry=await env.DB.prepare("SELECT plan_expires_at FROM users WHERE id=?").bind(user.id).first();
+    if(expiry?.plan_expires_at && Number(expiry.plan_expires_at)<=Date.now()) {
+     await env.DB.prepare("UPDATE users SET plan='free',plan_expires_at=NULL,updated_at=? WHERE id=?").bind(Date.now(),user.id).run();
+     user.plan="free";
+    }
+   } catch(expiryError) { /* Migration may not be applied yet; preserve normal sign-in until it is. */ }
+  }
+  return user;
 }
 async function sha(value) { return toB64(await crypto.subtle.digest("SHA-256",enc.encode(value))); }
+async function hmacSha256Base64(secret,message) {
+ const key=await crypto.subtle.importKey("raw",enc.encode(secret),{name:"HMAC",hash:"SHA-256"},false,["sign"]);
+ return toB64(await crypto.subtle.sign("HMAC",key,enc.encode(message)));
+}
+async function sha256Base64(value) { return toB64(await crypto.subtle.digest("SHA-256",enc.encode(value))); }
+async function verifyDokuSignature(request,rawBody,secret,expectedClientId) {
+ const clientId=request.headers.get("Client-Id")||"";
+ const requestId=request.headers.get("Request-Id")||"";
+ const timestamp=request.headers.get("Request-Timestamp")||"";
+ const signature=request.headers.get("Signature")||"";
+ const digest=await sha256Base64(rawBody);
+ if(!clientId||clientId!==expectedClientId||!requestId||!timestamp||!signature) return false;
+ const target=new URL(request.url).pathname;
+ const component="Client-Id:"+clientId+"\nRequest-Id:"+requestId+"\nRequest-Timestamp:"+timestamp+"\nRequest-Target:"+target+"\nDigest:"+digest;
+ const expected="HMACSHA256="+await hmacSha256Base64(secret,component);
+ if(signature.length!==expected.length) return false;
+ let diff=0; for(let i=0;i<signature.length;i++) diff|=signature.charCodeAt(i)^expected.charCodeAt(i);
+ return diff===0;
+}
+
 async function isToolEnabled(env,key) { const row=await env.DB.prepare("SELECT enabled FROM tool_settings WHERE tool_key=?").bind(key).first(); return !row || Number(row.enabled)!==0; }
 async function readSetting(env,key,fallback="") { const row=await env.DB.prepare("SELECT setting_value FROM system_settings WHERE setting_key=?").bind(key).first(); return row?.setting_value ?? fallback; }
 function validEmail(email) { return typeof email==="string" && email.length<=254 && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email); }
@@ -94,6 +124,93 @@ export default {
      console.error("Could not persist verified PayPal webhook event:",dbError);
      return json({error:"Verified event could not be saved. Retry later."},500);
     }
+   }
+
+   if(url.pathname==="/api/doku/create-checkout" && request.method==="POST") {
+    const user=await currentUser(request,env);
+    if(!user) return json({error:"Please sign in to continue."},401,headers);
+    const clientId=env.DOKU_CLIENT_ID,secret=env.DOKU_SECRET_KEY;
+    const dokuEnv=String(env.DOKU_ENV||"sandbox").toLowerCase();
+    if(!clientId||!secret||!["sandbox","live"].includes(dokuEnv)) return json({error:"DOKU checkout is not configured."},503,headers);
+    const body=await request.json().catch(()=>({}));
+    const planId=String(body.planId||"");
+    if(!["premium","business"].includes(planId)) return json({error:"Choose a valid paid plan."},400,headers);
+    if(user.plan===planId) return json({error:"You already have this plan."},409,headers);
+    const plan=await env.DB.prepare("SELECT id,name,monthly_price_cents,active FROM plans WHERE id=?").bind(planId).first();
+    if(!plan||Number(plan.active)!==1||!Number.isInteger(Number(plan.monthly_price_cents))||Number(plan.monthly_price_cents)<=0) return json({error:"This plan is currently unavailable."},400,headers);
+    const invoice="OD"+Date.now().toString()+random(5).replace(/[-_]/g,"").toUpperCase().slice(0,6);
+    const now=Date.now();
+    await env.DB.prepare("INSERT INTO doku_payment_orders (id,user_id,plan_id,invoice_number,amount_idr,status,created_at,updated_at) VALUES (?,?,?,?,?,'creating',?,?)")
+     .bind(crypto.randomUUID(),user.id,planId,invoice,Number(plan.monthly_price_cents),now,now).run();
+    const apiPath="/checkout/v1/payment";
+    const apiBase=dokuEnv==="live"?"https://api.doku.com":"https://api-sandbox.doku.com";
+    const requestId=crypto.randomUUID();
+    const timestamp=new Date().toISOString().replace(/\.\d{3}Z$/,"Z");
+    const siteOrigin=String(env.SITE_ORIGIN||new URL(request.url).origin).split(",")[0].trim();
+    const payload={
+     order:{amount:Number(plan.monthly_price_cents),invoice_number:invoice,currency:"IDR",callback_url:siteOrigin+"/?payment=return",callback_url_result:siteOrigin+"/?payment=return",language:"EN",auto_redirect:true},
+     payment:{payment_due_date:30,type:"SALE",payment_method_types:["QRIS"]},
+     customer:{id:user.id.slice(0,32),name:String(user.display_name||"OrbitDesk user").slice(0,60),email:user.email}
+    };
+    const rawBody=JSON.stringify(payload);
+    const digest=await sha256Base64(rawBody);
+    const component="Client-Id:"+clientId+"\nRequest-Id:"+requestId+"\nRequest-Timestamp:"+timestamp+"\nRequest-Target:"+apiPath+"\nDigest:"+digest;
+    const signature="HMACSHA256="+await hmacSha256Base64(secret,component);
+    let dokuResponse;
+    try {
+     const response=await fetch(apiBase+apiPath,{method:"POST",headers:{"Content-Type":"application/json","Client-Id":clientId,"Request-Id":requestId,"Request-Timestamp":timestamp,"Request-Target":apiPath,"Digest":digest,"Signature":signature},body:rawBody});
+     dokuResponse=await response.json().catch(()=>null);
+     if(!response.ok) {
+      console.error("DOKU checkout creation failed",response.status,JSON.stringify(dokuResponse).slice(0,1200));
+      await env.DB.prepare("UPDATE doku_payment_orders SET status='failed',updated_at=? WHERE invoice_number=?").bind(Date.now(),invoice).run();
+      return json({error:"DOKU could not create the checkout session. Check your Sandbox API credentials and merchant QRIS activation."},502,headers);
+     }
+    } catch(dokuError) {
+     console.error("DOKU checkout network error",dokuError);
+     await env.DB.prepare("UPDATE doku_payment_orders SET status='failed',updated_at=? WHERE invoice_number=?").bind(Date.now(),invoice).run();
+     return json({error:"Could not connect to DOKU. Please try again."},502,headers);
+    }
+    const paymentUrl=dokuResponse?.response?.payment?.url||dokuResponse?.payment?.url||"";
+    if(!paymentUrl||!/^https:\/\//i.test(paymentUrl)) {
+     console.error("DOKU response did not contain a valid checkout URL",JSON.stringify(dokuResponse).slice(0,1200));
+     await env.DB.prepare("UPDATE doku_payment_orders SET status='failed',updated_at=? WHERE invoice_number=?").bind(Date.now(),invoice).run();
+     return json({error:"DOKU did not return a valid checkout URL."},502,headers);
+    }
+    await env.DB.prepare("UPDATE doku_payment_orders SET status='pending',checkout_url=?,doku_request_id=?,updated_at=? WHERE invoice_number=?")
+     .bind(paymentUrl,requestId,Date.now(),invoice).run();
+    return json({ok:true,checkoutUrl:paymentUrl,invoiceNumber:invoice,amount:Number(plan.monthly_price_cents)},200,headers);
+   }
+   if(url.pathname==="/api/doku/webhook" && request.method==="GET") return json({ok:true,service:"OrbitDesk DOKU webhook",method:"POST"});
+   if(url.pathname==="/api/doku/webhook" && request.method==="POST") {
+    const clientId=env.DOKU_CLIENT_ID,secret=env.DOKU_SECRET_KEY;
+    if(!clientId||!secret) return json({error:"DOKU webhook is not configured."},503);
+    const rawBody=await request.text();
+    if(rawBody.length>65536) return json({error:"Notification payload too large."},413);
+    if(!(await verifyDokuSignature(request,rawBody,secret,clientId))) return json({error:"Invalid DOKU notification signature."},401);
+    const requestId=request.headers.get("Request-Id")||"";
+    const event=JSON.parse(rawBody);
+    const invoice=String(event?.order?.invoice_number||"");
+    const transactionStatus=String(event?.transaction?.status||"").toUpperCase();
+    if(!invoice||!transactionStatus) return json({error:"Invalid DOKU notification payload."},400);
+    const existingEvent=await env.DB.prepare("SELECT request_id FROM doku_webhook_events WHERE request_id=?").bind(requestId).first();
+    if(existingEvent) return json({ok:true,duplicate:true});
+    const order=await env.DB.prepare("SELECT id,user_id,plan_id,amount_idr,status FROM doku_payment_orders WHERE invoice_number=?").bind(invoice).first();
+    if(!order) return json({error:"Payment order not found."},404);
+    const notifiedAmount=Number(event?.order?.amount);
+    if(!Number.isFinite(notifiedAmount)||notifiedAmount!==Number(order.amount_idr)) return json({error:"Payment amount mismatch."},400);
+    await env.DB.prepare("INSERT OR IGNORE INTO doku_webhook_events (request_id,invoice_number,transaction_status,received_at) VALUES (?,?,?,?)")
+     .bind(requestId,invoice,transactionStatus,Date.now()).run();
+    if(transactionStatus==="SUCCESS" && order.status!=="paid") {
+     const now=Date.now();
+     const paid=await env.DB.prepare("UPDATE doku_payment_orders SET status='paid',paid_at=?,updated_at=? WHERE id=? AND status<>'paid'").bind(now,now,order.id).run();
+     if(paid.meta?.changes) {
+      const current=await env.DB.prepare("SELECT plan_expires_at FROM users WHERE id=?").bind(order.user_id).first();
+      const start=Math.max(now,Number(current?.plan_expires_at||0));
+      const expiresAt=start+30*24*60*60*1000;
+      await env.DB.prepare("UPDATE users SET plan=?,plan_expires_at=?,updated_at=? WHERE id=?").bind(order.plan_id,expiresAt,now,order.user_id).run();
+     }
+    }
+    return json({ok:true,verified:true,status:transactionStatus});
    }
    if(url.pathname==="/api/health" && request.method==="GET") return json({ok:true,service:"OrbitDesk API",version:"0.1.0"});
    if(url.pathname==="/api/health/db" && request.method==="GET") {
