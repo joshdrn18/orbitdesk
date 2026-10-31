@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState, type FormEvent } from 'react';
-import { Activity, ArrowUpRight, BarChart3, Bell, ChevronDown, CircleHelp, Command, CreditCard, FileText, Globe2, LayoutDashboard, Link2, LogOut, Menu, Package, Plus, QrCode, Search, Settings, ShieldCheck, Sparkles, Users, UserRound, X, Zap } from 'lucide-react';
+import { Activity, ArrowUpRight, BarChart3, Bell, ChevronDown, CircleHelp, Command, CreditCard, FileText, LayoutDashboard, Link2, LogOut, Menu, Package, Plus, QrCode, Search, Settings, ShieldCheck, Sparkles, UserRound, X, Zap } from 'lucide-react';
 
 type User = { id: string; email: string; displayName: string; role: string; plan: string };
 type Page = { id:string; title:string; slug:string; description:string; destination_url:string; status:string; created_at:number };
