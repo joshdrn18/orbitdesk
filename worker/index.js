@@ -264,7 +264,7 @@ export default {
    if(url.pathname==="/api/products" && request.method==="GET") {
     if(!(await isToolEnabled(env,"products"))) return json({error:"Products is temporarily disabled."},503,headers);
     const user=await currentUser(request,env); if(!user) return json({error:"Please sign in to continue."},401,headers);
-    const rows=await env.DB.prepare("SELECT id,name,description,price_cents,currency,category,image_url,status,created_at,updated_at FROM products WHERE user_id=? ORDER BY created_at DESC").bind(user.id).all();
+    const rows=await env.DB.prepare("SELECT id,name,description,price_cents,currency,category,image_url,status,bio_enabled,store_enabled,created_at,updated_at FROM products WHERE user_id=? ORDER BY created_at DESC").bind(user.id).all();
     return json({products:rows.results||[]},200,headers);
    }
    if(url.pathname==="/api/products" && request.method==="POST") {
@@ -299,8 +299,28 @@ export default {
     if(!["USD","MYR","IDR","SGD","EUR","GBP"].includes(currency)) return json({error:"Unsupported currency."},400,headers);
     if(imageUrl && (!/^https:\/\//i.test(imageUrl)||imageUrl.length>2048)) return json({error:"Product image must be a valid HTTPS URL."},400,headers);
     if(!["active","draft","archived"].includes(status)) return json({error:"Invalid product status."},400,headers);
-    await env.DB.prepare("UPDATE products SET name=?,description=?,price_cents=?,currency=?,category=?,image_url=?,status=?,updated_at=? WHERE id=? AND user_id=?").bind(name,description,price,currency,category,imageUrl,status,Date.now(),product.id,user.id).run();
+    await env.DB.prepare("UPDATE products SET name=?,description=?,price_cents=?,currency=?,category=?,image_url=?,status=?,bio_enabled=?,store_enabled=?,updated_at=? WHERE id=? AND user_id=?").bind(name,description,price,currency,category,imageUrl,status,body.bio_enabled?1:0,body.store_enabled?1:0,Date.now(),product.id,user.id).run();
     return json({ok:true},200,headers);
+   }
+   if(url.pathname==="/api/product-store" && request.method==="GET") {
+    if(!(await isToolEnabled(env,"products"))) return json({error:"Products is temporarily disabled."},503,headers);
+    const user=await currentUser(request,env); if(!user) return json({error:"Please sign in to continue."},401,headers);
+    const store=await env.DB.prepare("SELECT slug,store_name,description,logo_url,theme,enabled FROM product_stores WHERE user_id=?").bind(user.id).first();
+    return json({store:store||null},200,headers);
+   }
+   if(url.pathname==="/api/product-store" && request.method==="PUT") {
+    if(!(await isToolEnabled(env,"products"))) return json({error:"Products is temporarily disabled."},503,headers);
+    const user=await currentUser(request,env); if(!user) return json({error:"Please sign in to continue."},401,headers);
+    const body=await request.json(); const slug=String(body.slug||"").trim().toLowerCase(); const storeName=String(body.store_name||"").trim(); const description=String(body.description||"").trim(); const logoUrl=String(body.logo_url||"").trim(); const theme=["midnight","light","rose"].includes(body.theme)?body.theme:"midnight";
+    if(!/^[a-z0-9][a-z0-9-]{2,29}$/.test(slug)) return json({error:"Store URL must be 3–30 characters using letters, numbers and hyphens."},400,headers);
+    if(storeName.length<2||storeName.length>60||description.length>240) return json({error:"Store name must be 2–60 characters and description up to 240 characters."},400,headers);
+    if(logoUrl && (!/^https:\/\//i.test(logoUrl)||logoUrl.length>2048)) return json({error:"Logo must be a valid HTTPS URL."},400,headers);
+    const conflict=await env.DB.prepare("SELECT user_id FROM product_stores WHERE slug=? COLLATE NOCASE").bind(slug).first();
+    if(conflict&&conflict.user_id!==user.id) return json({error:"That store URL is already taken."},409,headers);
+    const id=crypto.randomUUID(),now=Date.now();
+    await env.DB.prepare("INSERT INTO product_stores (id,user_id,slug,store_name,description,logo_url,theme,enabled,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?,?) ON CONFLICT(user_id) DO UPDATE SET slug=excluded.slug,store_name=excluded.store_name,description=excluded.description,logo_url=excluded.logo_url,theme=excluded.theme,enabled=excluded.enabled,updated_at=excluded.updated_at")
+     .bind(id,user.id,slug,storeName,description,logoUrl,theme,body.enabled?1:0,now,now).run();
+    return json({ok:true,store:{slug,store_name:storeName,description,logo_url:logoUrl,theme,enabled:body.enabled?1:0}},200,headers);
    }
    if(url.pathname==="/api/bio" && request.method==="GET") {
     if(!(await isToolEnabled(env,"bio_pages"))) return json({error:"Bio Pages is temporarily disabled."},503,headers);
