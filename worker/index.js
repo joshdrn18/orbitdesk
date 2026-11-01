@@ -62,6 +62,84 @@ export default {
   const url=new URL(request.url); const headers=corsHeaders(request,env);
   if(request.method==="OPTIONS") return new Response(null,{status:204,headers:{...headers,"access-control-allow-methods":"GET,POST,OPTIONS","access-control-allow-headers":"Content-Type"}});
   try {
+   // PayPal one-time checkout: USD pricing, 30 days of access after verified capture.
+   if(url.pathname==="/api/paypal/create-order" && request.method==="POST") {
+    const user=await currentUser(request,env);
+    if(!user) return json({error:"Please sign in to continue."},401,headers);
+    const clientId=env.PAYPAL_CLIENT_ID,clientSecret=env.PAYPAL_CLIENT_SECRET;
+    const paypalEnv=String(env.PAYPAL_ENV||"sandbox").toLowerCase();
+    if(!clientId||!clientSecret||!["sandbox","live"].includes(paypalEnv)) return json({error:"PayPal checkout is not configured."},503,headers);
+    const body=await request.json().catch(()=>({}));
+    const planId=String(body.planId||"");
+    const prices={premium:"4.99",business:"11.99"};
+    if(!Object.prototype.hasOwnProperty.call(prices,planId)) return json({error:"Choose a valid paid plan."},400,headers);
+    if(user.plan===planId) return json({error:"You already have this plan."},409,headers);
+    const plan=await env.DB.prepare("SELECT id,name,active FROM plans WHERE id=?").bind(planId).first();
+    if(!plan||Number(plan.active)!==1) return json({error:"This plan is currently unavailable."},400,headers);
+    const apiBase=paypalEnv==="live"?"https://api-m.paypal.com":"https://api-m.sandbox.paypal.com";
+    const credentials=btoa(clientId+":"+clientSecret);
+    const tokenResponse=await fetch(apiBase+"/v1/oauth2/token",{method:"POST",headers:{Authorization:"Basic "+credentials,"Content-Type":"application/x-www-form-urlencoded"},body:"grant_type=client_credentials"});
+    if(!tokenResponse.ok) { console.error("PayPal OAuth failed",tokenResponse.status); return json({error:"Could not authenticate with PayPal."},502,headers); }
+    const tokenData=await tokenResponse.json();
+    if(!tokenData.access_token) return json({error:"PayPal did not return an access token."},502,headers);
+    const internalId=crypto.randomUUID(),now=Date.now(),invoice="ODP-"+Date.now()+"-"+random(5).replace(/[-_]/g,"").slice(0,6).toUpperCase();
+    const amount=prices[planId];
+    await env.DB.prepare("INSERT INTO paypal_payment_orders (id,user_id,plan_id,invoice_number,amount_usd,status,created_at,updated_at) VALUES (?,?,?,?,?,'creating',?,?)")
+     .bind(internalId,user.id,planId,invoice,amount,now,now).run();
+    const siteOrigin=String(env.SITE_ORIGIN||new URL(request.url).origin).split(",")[0].trim();
+    const orderPayload={
+     intent:"CAPTURE",
+     purchase_units:[{reference_id:planId,custom_id:internalId,invoice_id:invoice,description:"OrbitDesk "+plan.name+" plan - 30 days",amount:{currency_code:"USD",value:amount}}],
+     payment_source:{paypal:{experience_context:{brand_name:"OrbitDesk",user_action:"PAY_NOW",shipping_preference:"NO_SHIPPING",return_url:siteOrigin+"/?paypal=success",cancel_url:siteOrigin+"/?paypal=cancel"}}}
+    };
+    const createResponse=await fetch(apiBase+"/v2/checkout/orders",{method:"POST",headers:{Authorization:"Bearer "+tokenData.access_token,"Content-Type":"application/json","Prefer":"return=representation"},body:JSON.stringify(orderPayload)});
+    const orderData=await createResponse.json().catch(()=>null);
+    const approvalUrl=orderData?.links?.find(x=>x.rel==="approve"||x.rel==="payer-action")?.href;
+    if(!createResponse.ok||!orderData?.id||!approvalUrl||!/^https:\/\//i.test(approvalUrl)) {
+     console.error("PayPal order creation failed",createResponse.status,JSON.stringify(orderData).slice(0,1000));
+     await env.DB.prepare("UPDATE paypal_payment_orders SET status='failed',updated_at=? WHERE id=?").bind(Date.now(),internalId).run();
+     return json({error:"PayPal could not create the checkout session."},502,headers);
+    }
+    await env.DB.prepare("UPDATE paypal_payment_orders SET paypal_order_id=?,status='pending',updated_at=? WHERE id=?").bind(orderData.id,Date.now(),internalId).run();
+    return json({ok:true,approvalUrl,orderId:orderData.id,amountUsd:amount},200,headers);
+   }
+   if(url.pathname==="/api/paypal/capture-order" && request.method==="POST") {
+    const user=await currentUser(request,env);
+    if(!user) return json({error:"Please sign in to continue."},401,headers);
+    const clientId=env.PAYPAL_CLIENT_ID,clientSecret=env.PAYPAL_CLIENT_SECRET;
+    const paypalEnv=String(env.PAYPAL_ENV||"sandbox").toLowerCase();
+    if(!clientId||!clientSecret||!["sandbox","live"].includes(paypalEnv)) return json({error:"PayPal checkout is not configured."},503,headers);
+    const body=await request.json().catch(()=>({}));
+    const paypalOrderId=String(body.orderId||"").slice(0,80);
+    if(!paypalOrderId) return json({error:"Missing PayPal order ID."},400,headers);
+    const order=await env.DB.prepare("SELECT id,user_id,plan_id,invoice_number,amount_usd,status FROM paypal_payment_orders WHERE paypal_order_id=? AND user_id=?").bind(paypalOrderId,user.id).first();
+    if(!order) return json({error:"PayPal order was not found."},404,headers);
+    if(order.status==="paid") return json({ok:true,paid:true,plan:order.plan_id},200,headers);
+    const apiBase=paypalEnv==="live"?"https://api-m.paypal.com":"https://api-m.sandbox.paypal.com";
+    const tokenResponse=await fetch(apiBase+"/v1/oauth2/token",{method:"POST",headers:{Authorization:"Basic "+btoa(clientId+":"+clientSecret),"Content-Type":"application/x-www-form-urlencoded"},body:"grant_type=client_credentials"});
+    if(!tokenResponse.ok) return json({error:"Could not authenticate with PayPal."},502,headers);
+    const tokenData=await tokenResponse.json();
+    const captureResponse=await fetch(apiBase+"/v2/checkout/orders/"+encodeURIComponent(paypalOrderId)+"/capture",{method:"POST",headers:{Authorization:"Bearer "+tokenData.access_token,"Content-Type":"application/json","Prefer":"return=representation"},body:"{}"});
+    const captureData=await captureResponse.json().catch(()=>null);
+    if(!captureResponse.ok && captureData?.status!=="COMPLETED") {
+     console.error("PayPal capture failed",captureResponse.status,JSON.stringify(captureData).slice(0,1000));
+     return json({error:"PayPal payment could not be captured. Please contact support if you were charged."},502,headers);
+    }
+    const purchase=captureData?.purchase_units?.[0];
+    const capture=purchase?.payments?.captures?.[0];
+    if(captureData?.status!=="COMPLETED"||capture?.status!=="COMPLETED"||purchase?.custom_id!==order.id||capture?.amount?.currency_code!=="USD"||String(capture?.amount?.value)!==String(order.amount_usd)) {
+     console.error("PayPal capture verification mismatch",JSON.stringify(captureData).slice(0,1000));
+     return json({error:"PayPal payment details could not be verified."},400,headers);
+    }
+    const now=Date.now();
+    const saved=await env.DB.prepare("UPDATE paypal_payment_orders SET status='paid',paypal_capture_id=?,paid_at=?,updated_at=? WHERE id=? AND status<>'paid'").bind(String(capture.id||""),now,now,order.id).run();
+    if(saved.meta?.changes) {
+     const current=await env.DB.prepare("SELECT plan_expires_at FROM users WHERE id=?").bind(user.id).first();
+     const start=Math.max(now,Number(current?.plan_expires_at||0));
+     await env.DB.prepare("UPDATE users SET plan=?,plan_expires_at=?,updated_at=? WHERE id=?").bind(order.plan_id,start+30*24*60*60*1000,now,user.id).run();
+    }
+    return json({ok:true,paid:true,plan:order.plan_id},200,headers);
+   }
    // PayPal subscription webhook. Verify every notification with PayPal before recording it.
    if(url.pathname==="/api/paypal/webhook" && request.method==="GET") {
     return json({ok:true,service:"OrbitDesk PayPal webhook",method:"POST"});
@@ -116,6 +194,22 @@ export default {
     const verification=await verifyResponse.json();
     if(verification.verification_status!=="SUCCESS") return json({error:"Invalid PayPal webhook signature."},401);
     const resource=event.resource&&typeof event.resource==="object"?event.resource:{};
+    if(event.event_type==="PAYMENT.CAPTURE.COMPLETED" && String(resource.status||"").toUpperCase()==="COMPLETED") {
+     const relatedOrderId=String(resource?.supplementary_data?.related_ids?.order_id||"");
+     if(relatedOrderId) {
+      const paymentOrder=await env.DB.prepare("SELECT id,user_id,plan_id,amount_usd,status FROM paypal_payment_orders WHERE paypal_order_id=?").bind(relatedOrderId).first();
+      const captureAmount=resource?.amount;
+      if(paymentOrder && captureAmount?.currency_code==="USD" && String(captureAmount?.value)===String(paymentOrder.amount_usd)) {
+       const paidAt=Date.now();
+       const paid=await env.DB.prepare("UPDATE paypal_payment_orders SET status='paid',paypal_capture_id=?,paid_at=?,updated_at=? WHERE id=? AND status<>'paid'").bind(String(resource.id||""),paidAt,paidAt,paymentOrder.id).run();
+       if(paid.meta?.changes) {
+        const current=await env.DB.prepare("SELECT plan_expires_at FROM users WHERE id=?").bind(paymentOrder.user_id).first();
+        const start=Math.max(paidAt,Number(current?.plan_expires_at||0));
+        await env.DB.prepare("UPDATE users SET plan=?,plan_expires_at=?,updated_at=? WHERE id=?").bind(paymentOrder.plan_id,start+30*24*60*60*1000,paidAt,paymentOrder.user_id).run();
+       }
+      }
+     }
+    }
     try {
      const saved=await env.DB.prepare("INSERT OR IGNORE INTO paypal_webhook_events (event_id,event_type,resource_id,resource_status,event_create_time,received_at) VALUES (?,?,?,?,?,?)")
       .bind(String(event.id),String(event.event_type).slice(0,120),String(resource.id||"").slice(0,180),String(resource.status||"").slice(0,80),String(event.create_time||"").slice(0,80),Date.now()).run();
