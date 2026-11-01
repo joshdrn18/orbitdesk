@@ -518,7 +518,7 @@ export default {
     const visitor=await currentUser(request,env);
     if(visitor?.role!=="admin") return json({error:await readSetting(env,"maintenance_message","OrbitDesk is undergoing scheduled maintenance.")},503,headers);
    }
-   const publicPageMatch=url.pathname.match(/^\/p\/([a-z0-9]+)$/i);
+   const publicPageMatch=url.pathname.match(/^\/p\/([a-z0-9-]+)$/i);
    if(publicPageMatch && request.method==="GET") {
     if(!(await isToolEnabled(env,"pages"))) return new Response("This tool is temporarily unavailable.",{status:503,headers:{"content-type":"text/plain; charset=utf-8"}});
     const page=await env.DB.prepare("SELECT id,user_id,destination_url FROM pages WHERE slug=? AND status='active'").bind(publicPageMatch[1]).first();
@@ -562,7 +562,10 @@ export default {
     const customLimits=JSON.parse(override?.limits_json||"{}");
     const limit={...baseLimits,...customLimits}.pages??1;
     if(limit!==-1 && Number(count?.total||0)>=limit) return json({error:"Your Free plan allows 1 page. Upgrade to create more."},403,headers);
-    const id=crypto.randomUUID(); const slug=random(6).toLowerCase().replace(/[^a-z0-9]/g,"").slice(0,8);
+    const id=crypto.randomUUID(); const requestedSlug=String(body.slug||"").trim().toLowerCase(); const slug=requestedSlug||random(6).toLowerCase().replace(/[^a-z0-9]/g,"").slice(0,8);
+    if(!/^[a-z0-9](?:[a-z0-9-]{1,38}[a-z0-9])$/.test(slug)) return json({error:"Custom link must be 3–40 characters and use only letters, numbers and single hyphens."},400,headers);
+    const slugExists=await env.DB.prepare("SELECT id FROM pages WHERE slug=?").bind(slug).first();
+    if(slugExists) return json({error:"That short link is already taken. Choose another one."},409,headers);
     await env.DB.prepare("INSERT INTO pages (id,user_id,title,slug,description,destination_url,status,created_at,updated_at) VALUES (?,?,?,?,?,?,'active',?,?)").bind(id,user.id,title,slug,description,destination,Date.now(),Date.now()).run();
     return json({page:{id,title,slug,description,destination_url:destination,status:"active",created_at:Date.now()}},201,headers);
    }
@@ -576,10 +579,13 @@ export default {
      await env.DB.prepare("UPDATE pages SET status='deleted',updated_at=? WHERE id=? AND user_id=?").bind(Date.now(),page.id,user.id).run();
      return json({ok:true},200,headers);
     }
-    const body=await request.json(); const title=String(body.title||"").trim(); const description=String(body.description||"").trim(); const destination=String(body.destinationUrl||"").trim();
+    const body=await request.json(); const title=String(body.title||"").trim(); const description=String(body.description||"").trim(); const destination=String(body.destinationUrl||"").trim(); const slug=String(body.slug||"").trim().toLowerCase();
     if(title.length<2||title.length>80) return json({error:"Page title must be between 2 and 80 characters."},400,headers);
+    if(!/^[a-z0-9](?:[a-z0-9-]{1,38}[a-z0-9])$/.test(slug)) return json({error:"Custom link must be 3–40 characters and use only letters, numbers and single hyphens."},400,headers);
     if(!/^https?:\/\//i.test(destination)||destination.length>2048) return json({error:"Enter a valid destination URL starting with http:// or https://."},400,headers);
-    await env.DB.prepare("UPDATE pages SET title=?,description=?,destination_url=?,updated_at=? WHERE id=? AND user_id=?").bind(title,description,destination,Date.now(),page.id,user.id).run();
+    const slugExists=await env.DB.prepare("SELECT id FROM pages WHERE slug=? AND id!=?").bind(slug,page.id).first();
+    if(slugExists) return json({error:"That short link is already taken. Choose another one."},409,headers);
+    await env.DB.prepare("UPDATE pages SET title=?,slug=?,description=?,destination_url=?,updated_at=? WHERE id=? AND user_id=?").bind(title,slug,description,destination,Date.now(),page.id,user.id).run();
     return json({ok:true},200,headers);
    }
        if(url.pathname==="/api/invoices" && request.method==="GET") {
