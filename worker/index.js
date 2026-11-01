@@ -34,6 +34,11 @@ async function currentUser(request,env) {
   if(user) { try { const master=await env.DB.prepare("SELECT 1 AS enabled FROM master_admins WHERE user_id=?").bind(user.id).first(); user.is_master_admin=!!master; } catch(masterError) { user.is_master_admin=false; } }
   return user;
 }
+async function resolveWorkspace(request,env,user) {
+ const requested=String(request.headers.get("X-Workspace-ID")||"").trim();
+ if(requested) return await env.DB.prepare("SELECT w.id,w.name,wm.role FROM workspaces w JOIN workspace_members wm ON wm.workspace_id=w.id WHERE w.id=? AND wm.user_id=?").bind(requested,user.id).first();
+ return await env.DB.prepare("SELECT w.id,w.name,wm.role FROM workspaces w JOIN workspace_members wm ON wm.workspace_id=w.id WHERE wm.user_id=? ORDER BY w.created_at ASC LIMIT 1").bind(user.id).first();
+}
 async function sha(value) { return toB64(await crypto.subtle.digest("SHA-256",enc.encode(value))); }
 async function hmacSha256Base64(secret,message) {
  const key=await crypto.subtle.importKey("raw",enc.encode(secret),{name:"HMAC",hash:"SHA-256"},false,["sign"]);
@@ -626,7 +631,8 @@ export default {
    if(url.pathname==="/api/pages" && request.method==="GET") {
     if(!(await isToolEnabled(env,"pages"))) return json({error:"My Pages is temporarily disabled."},503,headers);
     const user=await currentUser(request,env); if(!user) return json({error:"Please sign in to continue."},401,headers);
-    const result=await env.DB.prepare("SELECT id,title,slug,description,destination_url,status,created_at,updated_at FROM pages WHERE user_id=? AND status!='deleted' ORDER BY created_at DESC").bind(user.id).all();
+    const workspace=await resolveWorkspace(request,env,user);if(!workspace)return json({error:"Workspace not found or access denied."},403,headers);
+    const result=await env.DB.prepare("SELECT id,title,slug,description,destination_url,status,created_at,updated_at FROM pages WHERE user_id=? AND workspace_id=? AND status!='deleted' ORDER BY created_at DESC").bind(user.id,workspace.id).all();
     const plan=await env.DB.prepare("SELECT limits_json FROM plans WHERE id=?").bind(user.plan).first();
     const override=await env.DB.prepare("SELECT limits_json FROM user_limit_overrides WHERE user_id=?").bind(user.id).first();
     let baseLimits={pages:5};let customLimits={};
