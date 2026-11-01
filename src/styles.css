@@ -405,3 +405,35 @@
 .workspace-popover .workspace-settings-btn{margin-top:6px;border:1px solid #30384d;background:#171e2d;color:#aeb7ca}
 .workspace-popover .workspace-settings-btn svg:last-child{margin-left:auto}
 @media(max-width:760px){.workspace-menu-wrap{margin:15px 8px 22px}.workspace-popover{max-height:65vh}}
+
+/* Account settings refinement */
+.account-settings-page{gap:20px}
+.settings-intro{padding:3px 1px 4px}
+.settings-intro .section-eyebrow{display:inline-flex;align-items:center;gap:7px;padding:5px 8px;border:1px solid #393253;border-radius:6px;background:#211d38;color:#b9adff;font-size:8px;font-weight:800;letter-spacing:1.1px}
+.settings-intro h2{font-size:26px;margin:10px 0 6px}
+.settings-intro p{font-size:11px;line-height:1.6}
+.account-settings-grid{gap:16px}
+.account-settings-card{padding:22px;border-radius:14px;background:linear-gradient(145deg,#141a29,#101522);transition:border-color .18s}
+.account-settings-card:hover{border-color:#343d55}
+.account-settings-card .panel-head h2{font-size:14px}
+.account-settings-card .panel-head p{font-size:10px;line-height:1.5}
+.account-settings-card .page-form{gap:15px}
+.account-settings-card .page-form label{gap:8px;font-size:10px}
+.account-settings-card .page-form label input{min-height:40px;border-radius:8px}
+.account-settings-card .primary-btn{min-height:39px}
+.settings-account-meta{gap:12px;padding:15px;border-radius:10px;background:#0c111d}
+.settings-account-meta strong{color:#d8d2ff}
+.workspace-settings-card{grid-column:1/-1}
+.workspace-settings-summary{display:flex;align-items:center;gap:12px;padding:15px;margin-top:18px;border:1px solid #2b3247;border-radius:11px;background:linear-gradient(100deg,#1b1b34,#131a28)}
+.workspace-settings-avatar{width:42px;height:42px;flex:0 0 42px;display:grid;place-items:center;border-radius:12px;background:linear-gradient(145deg,#a99aff,#6652df);color:white;font:800 16px Manrope;box-shadow:0 6px 20px #806cf533}
+.workspace-settings-name{display:grid;gap:5px;min-width:0;flex:1}
+.workspace-settings-name strong{font:700 11px Manrope;color:#f0effa;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.workspace-settings-name small{font-size:9px;color:#8993aa;text-transform:capitalize}
+.workspace-settings-status{display:flex;align-items:center;gap:6px;padding:5px 7px;border:1px solid #345b4e;border-radius:6px;background:#1a382f;color:#7ce0b2;font-size:7px;font-weight:800;letter-spacing:.7px}
+.workspace-settings-status i{width:5px;height:5px;border-radius:50%;background:#62d9a3}
+.workspace-settings-stats{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px;margin-top:12px}
+.workspace-settings-stats>div{display:grid;gap:6px;padding:13px;border:1px solid #282f42;border-radius:9px;background:#0e1420}
+.workspace-settings-stats small{font-size:8px;color:#7f8aa2}
+.workspace-settings-stats strong{font-size:10px;color:#e5e3f2;overflow-wrap:anywhere}
+.workspace-manage-btn{display:inline-flex;align-items:center;gap:8px;margin-top:14px}
+@media(max-width:600px){.account-settings-card{padding:16px}.workspace-settings-stats{gap:7px}.workspace-settings-stats>div{padding:10px}.workspace-settings-stats strong{font-size:9px}.workspace-settings-summary{padding:12px}}
