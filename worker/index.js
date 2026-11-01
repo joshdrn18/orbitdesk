@@ -558,10 +558,10 @@ export default {
     const count=await env.DB.prepare("SELECT COUNT(*) AS total FROM pages WHERE user_id=? AND status!='deleted'").bind(user.id).first();
     const plan=await env.DB.prepare("SELECT limits_json FROM plans WHERE id=?").bind(user.plan).first();
     const override=await env.DB.prepare("SELECT limits_json FROM user_limit_overrides WHERE user_id=?").bind(user.id).first();
-    const baseLimits=JSON.parse(plan?.limits_json||'{"pages":1}');
+    const baseLimits=JSON.parse(plan?.limits_json||'{"pages":5}');
     const customLimits=JSON.parse(override?.limits_json||"{}");
-    const limit={...baseLimits,...customLimits}.pages??1;
-    if(limit!==-1 && Number(count?.total||0)>=limit) return json({error:"Your Free plan allows 1 page. Upgrade to create more."},403,headers);
+    const limit={...baseLimits,...customLimits}.pages??5;
+    if(limit!==-1 && Number(count?.total||0)>=limit) return json({error:`Your plan allows ${limit} My Pages. Upgrade your plan for a higher limit.`},403,headers);
     const id=crypto.randomUUID(); const requestedSlug=String(body.slug||"").trim().toLowerCase(); const slug=requestedSlug||random(6).toLowerCase().replace(/[^a-z0-9]/g,"").slice(0,8);
     if(!/^[a-z0-9](?:[a-z0-9-]{1,38}[a-z0-9])$/.test(slug)) return json({error:"Custom link must be 3–40 characters and use only letters, numbers and single hyphens."},400,headers);
     const slugExists=await env.DB.prepare("SELECT id FROM pages WHERE slug=?").bind(slug).first();
