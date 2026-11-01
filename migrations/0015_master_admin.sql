@@ -6,7 +6,7 @@ CREATE TABLE IF NOT EXISTS master_admins (
 INSERT OR IGNORE INTO master_admins (user_id, created_at)
 SELECT id, unixepoch() * 1000
 FROM users
-WHERE lower(email) = lower('admorbit1@gmail.com')
+WHERE lower(email) = lower('admnorbit@gmail.com')
   AND role = 'admin';
 
 INSERT INTO user_limit_overrides (user_id, limits_json, updated_by, updated_at)
@@ -15,7 +15,7 @@ SELECT id,
        id,
        unixepoch() * 1000
 FROM users
-WHERE lower(email) = lower('admorbit1@gmail.com')
+WHERE lower(email) = lower('admnorbit@gmail.com')
   AND role = 'admin'
 ON CONFLICT(user_id) DO UPDATE SET
   limits_json = excluded.limits_json,
