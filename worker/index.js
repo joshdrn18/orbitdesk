@@ -31,6 +31,7 @@ async function currentUser(request,env) {
     }
    } catch(expiryError) { /* Migration may not be applied yet; preserve normal sign-in until it is. */ }
   }
+  if(user) { try { const master=await env.DB.prepare("SELECT 1 AS enabled FROM master_admins WHERE user_id=?").bind(user.id).first(); user.is_master_admin=!!master; } catch(masterError) { user.is_master_admin=false; } }
   return user;
 }
 async function sha(value) { return toB64(await crypto.subtle.digest("SHA-256",enc.encode(value))); }
@@ -393,7 +394,7 @@ export default {
    if(url.pathname.startsWith("/api/admin")) {
     const admin=await currentUser(request,env);
     if(!admin) return json({error:"Please sign in to continue."},401,headers);
-    if(!["admin","masteradmin"].includes(admin.role)) return json({error:"Admin access required."},403,headers);
+    if(admin.role!=="admin") return json({error:"Admin access required."},403,headers);
     const audit=async(action,targetType=null,targetId=null,metadata=null)=>env.DB.prepare("INSERT INTO audit_logs (id,actor_user_id,action,target_type,target_id,metadata_json,created_at) VALUES (?,?,?,?,?,?,?)").bind(crypto.randomUUID(),admin.id,action,targetType,targetId,metadata?JSON.stringify(metadata):null,Date.now()).run();
 
     if(url.pathname==="/api/admin/overview" && request.method==="GET") {
@@ -423,7 +424,8 @@ export default {
      if(targetId===admin.id) return json({error:"You cannot change your own admin account here."},400,headers);
      const target=await env.DB.prepare("SELECT id,role,plan,status FROM users WHERE id=?").bind(targetId).first();
      if(!target) return json({error:"User not found."},404,headers);
-     if(target.role==="masteradmin" && admin.role!=="masteradmin") return json({error:"Only the master admin can manage this account."},403,headers);
+     const protectedOwner=await env.DB.prepare("SELECT 1 AS enabled FROM master_admins WHERE user_id=?").bind(targetId).first().catch(()=>null);
+     if(protectedOwner && !admin.is_master_admin) return json({error:"Only the master admin can manage this account."},403,headers);
      const body=await request.json();
      const nextStatus=body.status===undefined?target.status:String(body.status);
      const nextPlan=body.plan===undefined?target.plan:String(body.plan);
