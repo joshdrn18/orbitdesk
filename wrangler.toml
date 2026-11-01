@@ -15,7 +15,7 @@ migrations_dir = "migrations"
 
 # [[kv_namespaces]]
 # binding = "CACHE"
-# id = "REPLACE_WITH_KV_NAMESPACE_ID"
+# id = "da4ba13215ae416c98f32f34e8469bab"
 
 [vars]
 SITE_ORIGIN = "https://orbitdesk-443.pages.dev"
