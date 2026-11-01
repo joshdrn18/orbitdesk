@@ -644,10 +644,11 @@ export default {
    if(url.pathname==="/api/pages" && request.method==="POST") {
     if(!(await isToolEnabled(env,"pages"))) return json({error:"My Pages is temporarily disabled."},503,headers);
     const user=await currentUser(request,env); if(!user) return json({error:"Please sign in to continue."},401,headers);
+    const workspace=await resolveWorkspace(request,env,user);if(!workspace)return json({error:"Workspace not found or access denied."},403,headers);
     const body=await request.json(); const title=String(body.title||"").trim(); const description=String(body.description||"").trim(); const destination=String(body.destinationUrl||"").trim();
     if(title.length<2||title.length>80) return json({error:"Page title must be between 2 and 80 characters."},400,headers);
     if(!/^https?:\/\//i.test(destination)||destination.length>2048) return json({error:"Enter a valid destination URL starting with http:// or https://."},400,headers);
-    const count=await env.DB.prepare("SELECT COUNT(*) AS total FROM pages WHERE user_id=? AND status!='deleted'").bind(user.id).first();
+    const count=await env.DB.prepare("SELECT COUNT(*) AS total FROM pages WHERE user_id=? AND workspace_id=? AND status!='deleted'").bind(user.id,workspace.id).first();
     const plan=await env.DB.prepare("SELECT limits_json FROM plans WHERE id=?").bind(user.plan).first();
     const override=await env.DB.prepare("SELECT limits_json FROM user_limit_overrides WHERE user_id=?").bind(user.id).first();
     const baseLimits=JSON.parse(plan?.limits_json||'{"pages":5}');
@@ -658,17 +659,18 @@ export default {
     if(!/^[a-z0-9](?:[a-z0-9-]{1,38}[a-z0-9])$/.test(slug)) return json({error:"Custom link must be 3–40 characters and use only letters, numbers and single hyphens."},400,headers);
     const slugExists=await env.DB.prepare("SELECT id FROM pages WHERE slug=?").bind(slug).first();
     if(slugExists) return json({error:"That short link is already taken. Choose another one."},409,headers);
-    await env.DB.prepare("INSERT INTO pages (id,user_id,title,slug,description,destination_url,status,created_at,updated_at) VALUES (?,?,?,?,?,?,'active',?,?)").bind(id,user.id,title,slug,description,destination,Date.now(),Date.now()).run();
+    await env.DB.prepare("INSERT INTO pages (id,user_id,workspace_id,title,slug,description,destination_url,status,created_at,updated_at) VALUES (?,?,?,?,?,?,?,'active',?,?)").bind(id,user.id,workspace.id,title,slug,description,destination,Date.now(),Date.now()).run();
     return json({page:{id,title,slug,description,destination_url:destination,status:"active",created_at:Date.now()}},201,headers);
    }
    const pageMatch=url.pathname.match(/^\/api\/pages\/([a-f0-9-]+)$/i);
    if(pageMatch && ["PUT","DELETE"].includes(request.method)) {
     if(!(await isToolEnabled(env,"pages"))) return json({error:"My Pages is temporarily disabled."},503,headers);
     const user=await currentUser(request,env); if(!user) return json({error:"Please sign in to continue."},401,headers);
-    const page=await env.DB.prepare("SELECT id FROM pages WHERE id=? AND user_id=? AND status!='deleted'").bind(pageMatch[1],user.id).first();
+    const workspace=await resolveWorkspace(request,env,user);if(!workspace)return json({error:"Workspace not found or access denied."},403,headers);
+    const page=await env.DB.prepare("SELECT id FROM pages WHERE id=? AND user_id=? AND workspace_id=? AND status!='deleted'").bind(pageMatch[1],user.id,workspace.id).first();
     if(!page) return json({error:"Page not found."},404,headers);
     if(request.method==="DELETE") {
-     await env.DB.prepare("UPDATE pages SET status='deleted',updated_at=? WHERE id=? AND user_id=?").bind(Date.now(),page.id,user.id).run();
+     await env.DB.prepare("UPDATE pages SET status='deleted',updated_at=? WHERE id=? AND user_id=? AND workspace_id=?").bind(Date.now(),page.id,user.id,workspace.id).run();
      return json({ok:true},200,headers);
     }
     const body=await request.json(); const title=String(body.title||"").trim(); const description=String(body.description||"").trim(); const destination=String(body.destinationUrl||"").trim(); const slug=String(body.slug||"").trim().toLowerCase();
@@ -677,7 +679,7 @@ export default {
     if(!/^https?:\/\//i.test(destination)||destination.length>2048) return json({error:"Enter a valid destination URL starting with http:// or https://."},400,headers);
     const slugExists=await env.DB.prepare("SELECT id FROM pages WHERE slug=? AND id!=?").bind(slug,page.id).first();
     if(slugExists) return json({error:"That short link is already taken. Choose another one."},409,headers);
-    await env.DB.prepare("UPDATE pages SET title=?,slug=?,description=?,destination_url=?,updated_at=? WHERE id=? AND user_id=?").bind(title,slug,description,destination,Date.now(),page.id,user.id).run();
+    await env.DB.prepare("UPDATE pages SET title=?,slug=?,description=?,destination_url=?,updated_at=? WHERE id=? AND user_id=? AND workspace_id=?").bind(title,slug,description,destination,Date.now(),page.id,user.id,workspace.id).run();
     return json({ok:true},200,headers);
    }
        if(url.pathname==="/api/invoices" && request.method==="GET") {
@@ -772,12 +774,14 @@ if(url.pathname==="/api/forms" && request.method==="GET") {
    if(url.pathname==="/api/products" && request.method==="GET") {
     if(!(await isToolEnabled(env,"products"))) return json({error:"Products is temporarily disabled."},503,headers);
     const user=await currentUser(request,env); if(!user) return json({error:"Please sign in to continue."},401,headers);
-    const rows=await env.DB.prepare("SELECT id,name,description,price_cents,currency,category,image_url,status,bio_enabled,store_enabled,created_at,updated_at FROM products WHERE user_id=? ORDER BY created_at DESC").bind(user.id).all();
+    const workspace=await resolveWorkspace(request,env,user);if(!workspace)return json({error:"Workspace not found or access denied."},403,headers);
+    const rows=await env.DB.prepare("SELECT id,name,description,price_cents,currency,category,image_url,status,bio_enabled,store_enabled,created_at,updated_at FROM products WHERE user_id=? AND workspace_id=? ORDER BY created_at DESC").bind(user.id,workspace.id).all();
     return json({products:rows.results||[]},200,headers);
    }
    if(url.pathname==="/api/products" && request.method==="POST") {
     if(!(await isToolEnabled(env,"products"))) return json({error:"Products is temporarily disabled."},503,headers);
     const user=await currentUser(request,env); if(!user) return json({error:"Please sign in to continue."},401,headers);
+    const workspace=await resolveWorkspace(request,env,user);if(!workspace)return json({error:"Workspace not found or access denied."},403,headers);
     const body=await request.json(); const name=String(body.name||"").trim(); const description=String(body.description||"").trim(); const category=String(body.category||"").trim(); const imageUrl=String(body.image_url||"").trim(); const currency=String(body.currency||"USD").toUpperCase(); const price=Number(body.price_cents); const status=String(body.status||"active");
     if(name.length<2||name.length>120) return json({error:"Product name must be 2–120 characters."},400,headers);
     if(description.length>2000||category.length>60) return json({error:"Description or category is too long."},400,headers);
@@ -785,29 +789,30 @@ if(url.pathname==="/api/forms" && request.method==="GET") {
     if(!["USD","MYR","IDR","SGD","EUR","GBP"].includes(currency)) return json({error:"Unsupported currency."},400,headers);
     if(imageUrl && (!/^https:\/\//i.test(imageUrl)||imageUrl.length>2048)) return json({error:"Product image must be a valid HTTPS URL."},400,headers);
     if(!["active","draft","archived"].includes(status)) return json({error:"Invalid product status."},400,headers);
-    const count=await env.DB.prepare("SELECT COUNT(*) AS total FROM products WHERE user_id=?").bind(user.id).first();
+    const count=await env.DB.prepare("SELECT COUNT(*) AS total FROM products WHERE user_id=? AND workspace_id=?").bind(user.id,workspace.id).first();
     const plan=await env.DB.prepare("SELECT limits_json FROM plans WHERE id=?").bind(user.plan).first();
     const override=await env.DB.prepare("SELECT limits_json FROM user_limit_overrides WHERE user_id=?").bind(user.id).first();
     const baseLimits=JSON.parse(plan?.limits_json||'{"products":10}'); const customLimits=JSON.parse(override?.limits_json||"{}"); const limit={...baseLimits,...customLimits}.products??10;
     if(limit!==-1 && Number(count?.total||0)>=limit) return json({error:"You have reached your product limit for this plan."},403,headers);
     const id=crypto.randomUUID(); const now=Date.now();
-    await env.DB.prepare("INSERT INTO products (id,user_id,name,description,price_cents,currency,category,image_url,status,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?)").bind(id,user.id,name,description,price,currency,category,imageUrl,status,now,now).run();
+    await env.DB.prepare("INSERT INTO products (id,user_id,workspace_id,name,description,price_cents,currency,category,image_url,status,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)").bind(id,user.id,workspace.id,name,description,price,currency,category,imageUrl,status,now,now).run();
     return json({ok:true,id},201,headers);
    }
    const productMatch=url.pathname.match(/^\/api\/products\/([a-f0-9-]+)$/i);
    if(productMatch && ["PUT","DELETE"].includes(request.method)) {
     if(!(await isToolEnabled(env,"products"))) return json({error:"Products is temporarily disabled."},503,headers);
     const user=await currentUser(request,env); if(!user) return json({error:"Please sign in to continue."},401,headers);
-    const product=await env.DB.prepare("SELECT id FROM products WHERE id=? AND user_id=?").bind(productMatch[1],user.id).first();
+    const workspace=await resolveWorkspace(request,env,user);if(!workspace)return json({error:"Workspace not found or access denied."},403,headers);
+    const product=await env.DB.prepare("SELECT id FROM products WHERE id=? AND user_id=? AND workspace_id=?").bind(productMatch[1],user.id,workspace.id).first();
     if(!product) return json({error:"Product not found."},404,headers);
-    if(request.method==="DELETE") { await env.DB.prepare("DELETE FROM products WHERE id=? AND user_id=?").bind(product.id,user.id).run(); return json({ok:true},200,headers); }
+    if(request.method==="DELETE") { await env.DB.prepare("DELETE FROM products WHERE id=? AND user_id=? AND workspace_id=?").bind(product.id,user.id,workspace.id).run(); return json({ok:true},200,headers); }
     const body=await request.json(); const name=String(body.name||"").trim(); const description=String(body.description||"").trim(); const category=String(body.category||"").trim(); const imageUrl=String(body.image_url||"").trim(); const currency=String(body.currency||"USD").toUpperCase(); const price=Number(body.price_cents); const status=String(body.status||"active");
     if(name.length<2||name.length>120||description.length>2000||category.length>60) return json({error:"Check product name, description and category."},400,headers);
     if(!Number.isInteger(price)||price<0||price>100000000000) return json({error:"Enter a valid product price."},400,headers);
     if(!["USD","MYR","IDR","SGD","EUR","GBP"].includes(currency)) return json({error:"Unsupported currency."},400,headers);
     if(imageUrl && (!/^https:\/\//i.test(imageUrl)||imageUrl.length>2048)) return json({error:"Product image must be a valid HTTPS URL."},400,headers);
     if(!["active","draft","archived"].includes(status)) return json({error:"Invalid product status."},400,headers);
-    await env.DB.prepare("UPDATE products SET name=?,description=?,price_cents=?,currency=?,category=?,image_url=?,status=?,bio_enabled=?,store_enabled=?,updated_at=? WHERE id=? AND user_id=?").bind(name,description,price,currency,category,imageUrl,status,body.bio_enabled?1:0,body.store_enabled?1:0,Date.now(),product.id,user.id).run();
+    await env.DB.prepare("UPDATE products SET name=?,description=?,price_cents=?,currency=?,category=?,image_url=?,status=?,bio_enabled=?,store_enabled=?,updated_at=? WHERE id=? AND user_id=? AND workspace_id=?").bind(name,description,price,currency,category,imageUrl,status,body.bio_enabled?1:0,body.store_enabled?1:0,Date.now(),product.id,user.id,workspace.id).run();
     return json({ok:true},200,headers);
    }
    if(url.pathname==="/api/product-store" && request.method==="GET") {
