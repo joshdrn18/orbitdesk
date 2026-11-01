@@ -360,3 +360,7 @@
 .page-item-main small{font-size:13px;font-weight:700;letter-spacing:.15px;color:#c4bbff;line-height:1.45;overflow-wrap:anywhere;white-space:normal}
 .page-item-main small::before{content:'↗ ';color:#a99cff}
 @media(max-width:500px){.page-item-main small{font-size:12px}}
+
+/* Keep Help Center accessible above sidebar decorative layers. */
+.sidebar-bottom{position:relative;z-index:8;pointer-events:auto}
+.help-link{position:relative;z-index:9;pointer-events:auto;cursor:pointer;touch-action:manipulation}
