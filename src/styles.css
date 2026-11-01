@@ -355,3 +355,8 @@
 /* Keep the sidebar upgrade action above decorative layers and clickable. */
 .upgrade-card{position:relative;z-index:6;pointer-events:auto}
 .upgrade-card button{position:relative;z-index:7;display:block;pointer-events:auto;cursor:pointer;touch-action:manipulation}
+
+/* More readable short links in My Pages. */
+.page-item-main small{font-size:13px;font-weight:700;letter-spacing:.15px;color:#c4bbff;line-height:1.45;overflow-wrap:anywhere;white-space:normal}
+.page-item-main small::before{content:'↗ ';color:#a99cff}
+@media(max-width:500px){.page-item-main small{font-size:12px}}
