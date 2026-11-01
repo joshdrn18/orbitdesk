@@ -437,3 +437,10 @@
 .workspace-settings-stats strong{font-size:10px;color:#e5e3f2;overflow-wrap:anywhere}
 .workspace-manage-btn{display:inline-flex;align-items:center;gap:8px;margin-top:14px}
 @media(max-width:600px){.account-settings-card{padding:16px}.workspace-settings-stats{gap:7px}.workspace-settings-stats>div{padding:10px}.workspace-settings-stats strong{font-size:9px}.workspace-settings-summary{padding:12px}}
+
+
+/* Keep every sidebar navigation item reachable on shorter screens. */
+.sidebar{overflow-y:auto;overflow-x:hidden;overscroll-behavior:contain}
+.sidebar nav{position:relative;z-index:10;flex:0 0 auto;pointer-events:auto}
+.sidebar nav .nav-item{position:relative;z-index:1;pointer-events:auto;touch-action:manipulation}
+.sidebar-bottom{flex:0 0 auto}
