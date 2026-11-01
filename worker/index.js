@@ -339,11 +339,11 @@ export default {
     const candidate=await hashPassword(password,fromB64(user.password_salt));
     if(candidate!==user.password_hash) return json({error:"Invalid email or password."},401,headers);
     const token=random(32); await env.DB.prepare("INSERT INTO user_sessions (id,user_id,token_hash,expires_at,created_at) VALUES (?,?,?,?,?)").bind(crypto.randomUUID(),user.id,await sha(token),Date.now()+2592000000,Date.now()).run();
-    return json({user:{id:user.id,email:user.email,displayName:user.display_name,role:user.role,plan:user.plan}},200,{...headers,"set-cookie":cookie("od_session",token,2592000)});
+    const master=await env.DB.prepare("SELECT 1 AS enabled FROM master_admins WHERE user_id=?").bind(user.id).first(); return json({user:{id:user.id,email:user.email,displayName:user.display_name,role:user.role,plan:user.plan,is_master_admin:!!master}},200,{...headers,"set-cookie":cookie("od_session",token,2592000)});
    }
    if(url.pathname==="/api/auth/me" && request.method==="GET") {
     const user=await currentUser(request,env); if(!user) return json({error:"Not signed in."},401,headers);
-    return json({user:{id:user.id,email:user.email,displayName:user.display_name,role:user.role,plan:user.plan}},200,headers);
+    return json({user:{id:user.id,email:user.email,displayName:user.display_name,role:user.role,plan:user.plan,is_master_admin:!!user.is_master_admin}},200,headers);
    }
    if(url.pathname==="/api/auth/logout" && request.method==="POST") {
     const token=getCookie(request,"od_session"); if(token) await env.DB.prepare("DELETE FROM user_sessions WHERE token_hash=?").bind(await sha(token)).run();
