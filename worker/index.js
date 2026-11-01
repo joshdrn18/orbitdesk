@@ -458,19 +458,20 @@ export default {
       const targetId=inspectMatch[1];
       const target=await env.DB.prepare("SELECT id,email,display_name,role,plan,status,created_at FROM users WHERE id=?").bind(targetId).first();
       if(!target) return json({error:"User not found."},404,headers);
-      const [workspaces,pages,bio,products,stores,forms,invoices,analytics]=await Promise.all([
+      const [workspaces,pages,bio,products,stores,forms,formSubmissions,invoices,analytics]=await Promise.all([
        env.DB.prepare("SELECT w.id,w.name,w.slug,w.created_at,wm.role FROM workspaces w JOIN workspace_members wm ON wm.workspace_id=w.id WHERE wm.user_id=? ORDER BY w.created_at").bind(targetId).all(),
        env.DB.prepare("SELECT id,title,slug,description,destination_url,status,workspace_id,created_at FROM pages WHERE user_id=? AND status!='deleted' ORDER BY created_at DESC LIMIT 100").bind(targetId).all(),
        env.DB.prepare("SELECT id,username,display_name,bio,avatar_url,theme,workspace_id,created_at FROM bio_profiles WHERE user_id=?").bind(targetId).all(),
        env.DB.prepare("SELECT id,name,description,price_cents,currency,category,image_url,status,bio_enabled,store_enabled,workspace_id,created_at FROM products WHERE user_id=? ORDER BY created_at DESC LIMIT 100").bind(targetId).all(),
        env.DB.prepare("SELECT id,slug,store_name,description,logo_url,theme,enabled,workspace_id,created_at FROM product_stores WHERE user_id=?").bind(targetId).all(),
        env.DB.prepare("SELECT id,title,description,slug,fields_json,status,workspace_id,created_at,(SELECT COUNT(*) FROM form_submissions s WHERE s.form_id=forms.id) AS submission_count FROM forms WHERE user_id=? ORDER BY created_at DESC LIMIT 100").bind(targetId).all(),
+       env.DB.prepare("SELECT s.id,s.form_id,f.title AS form_title,s.answers_json,s.submitted_at FROM form_submissions s JOIN forms f ON f.id=s.form_id WHERE f.user_id=? ORDER BY s.submitted_at DESC LIMIT 300").bind(targetId).all(),
        env.DB.prepare("SELECT id,invoice_number,customer_name,customer_email,currency,total_cents,status,workspace_id,created_at FROM invoices WHERE user_id=? ORDER BY created_at DESC LIMIT 100").bind(targetId).all(),
        env.DB.prepare("SELECT event_type,resource_type,COUNT(*) AS total,MAX(created_at) AS last_seen FROM analytics_events WHERE user_id=? GROUP BY event_type,resource_type ORDER BY total DESC LIMIT 20").bind(targetId).all()
       ]);
       const bioProfiles=await Promise.all((bio.results||[]).map(async profile=>{const links=await env.DB.prepare("SELECT id,title,url,icon,is_active,clicks,position FROM bio_links WHERE profile_id=? ORDER BY position").bind(profile.id).all();return {...profile,links:links.results||[]};}));
       await audit("user.content_inspected","user",targetId,{sections:["workspaces","pages","bio","products","stores","forms","invoices","analytics"],readOnly:true});
-      return json({user:target,workspaces:workspaces.results||[],pages:pages.results||[],bio:bioProfiles,products:products.results||[],stores:stores.results||[],forms:forms.results||[],invoices:invoices.results||[],analytics:analytics.results||[]},200,headers);
+      return json({user:target,workspaces:workspaces.results||[],pages:pages.results||[],bio:bioProfiles,products:products.results||[],stores:stores.results||[],forms:forms.results||[],formSubmissions:formSubmissions.results||[],invoices:invoices.results||[],analytics:analytics.results||[]},200,headers);
      }
 
     if(url.pathname==="/api/admin/overview" && request.method==="GET") {
