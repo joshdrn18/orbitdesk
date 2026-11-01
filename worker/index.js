@@ -546,8 +546,14 @@ export default {
    if(url.pathname==="/api/pages" && request.method==="GET") {
     if(!(await isToolEnabled(env,"pages"))) return json({error:"My Pages is temporarily disabled."},503,headers);
     const user=await currentUser(request,env); if(!user) return json({error:"Please sign in to continue."},401,headers);
-    const result=await env.DB.prepare("SELECT id,title,slug,description,destination_url,status,created_at,updated_at FROM pages WHERE user_id=? ORDER BY created_at DESC").bind(user.id).all();
-    return json({pages:result.results||[]},200,headers);
+    const result=await env.DB.prepare("SELECT id,title,slug,description,destination_url,status,created_at,updated_at FROM pages WHERE user_id=? AND status!='deleted' ORDER BY created_at DESC").bind(user.id).all();
+    const plan=await env.DB.prepare("SELECT limits_json FROM plans WHERE id=?").bind(user.plan).first();
+    const override=await env.DB.prepare("SELECT limits_json FROM user_limit_overrides WHERE user_id=?").bind(user.id).first();
+    let baseLimits={pages:5};let customLimits={};
+    try{baseLimits=JSON.parse(plan?.limits_json||'{"pages":5}')}catch{}
+    try{customLimits=JSON.parse(override?.limits_json||"{}")}catch{}
+    const pageLimit={...baseLimits,...customLimits}.pages??5;
+    return json({pages:result.results||[],pageLimit},200,headers);
    }
    if(url.pathname==="/api/pages" && request.method==="POST") {
     if(!(await isToolEnabled(env,"pages"))) return json({error:"My Pages is temporarily disabled."},503,headers);
