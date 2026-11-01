@@ -452,7 +452,7 @@ export default {
       await audit("workspace.created_for_user","workspace",id,{userId:targetId,name,createdByMasterAdmin:true});
       return json({ok:true,workspace:{id,name,slug,owner_user_id:targetId,created_at:now}},201,headers);
      }
-     const inspectMatch=url.pathname.match(/^\\/api\\/admin\\/users\\/([a-f0-9-]+)\\/inspect$/i);
+     const inspectMatch=url.pathname.match(new RegExp("^/api/admin/users/([a-f0-9-]+)/inspect$","i"));
      if(inspectMatch && request.method==="GET") {
       if(!admin.is_master_admin) return json({error:"Master Admin access required."},403,headers);
       const targetId=inspectMatch[1];
