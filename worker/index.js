@@ -61,7 +61,7 @@ function validEmail(email) { return typeof email==="string" && email.length<=254
 export default {
  async fetch(request,env) {
   const url=new URL(request.url); const headers=corsHeaders(request,env);
-  if(request.method==="OPTIONS") return new Response(null,{status:204,headers:{...headers,"access-control-allow-methods":"GET,POST,OPTIONS","access-control-allow-headers":"Content-Type"}});
+  if(request.method==="OPTIONS") return new Response(null,{status:204,headers:{...headers,"access-control-allow-methods":"GET,POST,OPTIONS","access-control-allow-headers":"Content-Type, X-Workspace-ID"}});
   try {
    // PayPal one-time checkout: USD pricing, 30 days of access after verified capture.
    if(url.pathname==="/api/paypal/create-order" && request.method==="POST") {
@@ -390,12 +390,88 @@ export default {
     ]);
     return json({tools:Object.fromEntries((tools.results||[]).map(x=>[x.tool_key,Number(x.enabled)===1])),maintenance:maintenance==="true",maintenanceMessage,announcement:announcementEnabled==="true"?announcementMessage:""},200,headers);
    }
+   
+   if(url.pathname==="/api/workspaces" && request.method==="GET") {
+    const user=await currentUser(request,env); if(!user) return json({error:"Please sign in to continue."},401,headers);
+    const [rows,plan,override]=await Promise.all([
+     env.DB.prepare("SELECT w.id,w.name,w.slug,w.owner_user_id,w.created_at,wm.role,(SELECT COUNT(*) FROM workspace_members x WHERE x.workspace_id=w.id) AS member_count FROM workspace_members wm JOIN workspaces w ON w.id=wm.workspace_id WHERE wm.user_id=? ORDER BY w.created_at ASC").bind(user.id).all(),
+     env.DB.prepare("SELECT limits_json FROM plans WHERE id=?").bind(user.plan).first(),
+     env.DB.prepare("SELECT limits_json FROM user_limit_overrides WHERE user_id=?").bind(user.id).first()
+    ]);
+    let limits={}; try{limits={...(JSON.parse(plan?.limits_json||"{}")),...(JSON.parse(override?.limits_json||"{}"))};}catch{}
+    const workspaces=rows.results||[];
+    return json({workspaces,workspaceLimit:Number(limits.workspaces??1),count:workspaces.length,activeWorkspaceId:workspaces[0]?.id||null},200,headers);
+   }
+   if(url.pathname==="/api/workspaces" && request.method==="POST") {
+    const user=await currentUser(request,env); if(!user) return json({error:"Please sign in to continue."},401,headers);
+    const body=await request.json().catch(()=>({})); const name=String(body.name||"").trim();
+    if(name.length<2||name.length>60) return json({error:"Workspace name must be 2–60 characters."},400,headers);
+    const [plan,override,count]=await Promise.all([
+     env.DB.prepare("SELECT limits_json FROM plans WHERE id=?").bind(user.plan).first(),
+     env.DB.prepare("SELECT limits_json FROM user_limit_overrides WHERE user_id=?").bind(user.id).first(),
+     env.DB.prepare("SELECT COUNT(*) AS total FROM workspace_members WHERE user_id=?").bind(user.id).first()
+    ]);
+    let limits={}; try{limits={...(JSON.parse(plan?.limits_json||"{}")),...(JSON.parse(override?.limits_json||"{}"))};}catch{}
+    const limit=Number(limits.workspaces??1);
+    if(limit!==-1&&Number(count?.total||0)>=limit) return json({error:"You have reached your workspace limit. Upgrade your plan to add more."},403,headers);
+    const id=crypto.randomUUID(),slug="ws-"+random(8).toLowerCase().replace(/[^a-z0-9]/g,"").slice(0,10),now=Date.now();
+    await env.DB.batch([
+     env.DB.prepare("INSERT INTO workspaces (id,owner_user_id,name,slug,created_at) VALUES (?,?,?,?,?)").bind(id,user.id,name,slug,now),
+     env.DB.prepare("INSERT INTO workspace_members (workspace_id,user_id,role,created_at) VALUES (?,?,?,?)").bind(id,user.id,"owner",now)
+    ]);
+    return json({ok:true,workspace:{id,name,slug,owner_user_id:user.id,role:"owner",created_at:now}},201,headers);
+   }
+
    // Admin Control Center — every route is protected by the signed-in admin role.
    if(url.pathname.startsWith("/api/admin")) {
     const admin=await currentUser(request,env);
     if(!admin) return json({error:"Please sign in to continue."},401,headers);
     if(admin.role!=="admin") return json({error:"Admin access required."},403,headers);
     const audit=async(action,targetType=null,targetId=null,metadata=null)=>env.DB.prepare("INSERT INTO audit_logs (id,actor_user_id,action,target_type,target_id,metadata_json,created_at) VALUES (?,?,?,?,?,?,?)").bind(crypto.randomUUID(),admin.id,action,targetType,targetId,metadata?JSON.stringify(metadata):null,Date.now()).run();
+
+     if(url.pathname==="/api/admin/workspaces" && request.method==="GET") {
+      if(!admin.is_master_admin) return json({error:"Master Admin access required."},403,headers);
+      const targetId=(url.searchParams.get("userId")||"").trim();
+      if(!targetId) return json({error:"A userId is required."},400,headers);
+      const target=await env.DB.prepare("SELECT id,email,display_name,plan,status FROM users WHERE id=?").bind(targetId).first();
+      if(!target) return json({error:"User not found."},404,headers);
+      const rows=await env.DB.prepare("SELECT w.id,w.name,w.slug,w.created_at,wm.role,(SELECT COUNT(*) FROM workspace_members m WHERE m.workspace_id=w.id) AS member_count FROM workspaces w JOIN workspace_members wm ON wm.workspace_id=w.id WHERE wm.user_id=? ORDER BY w.created_at").bind(targetId).all();
+      return json({user:target,workspaces:rows.results||[]},200,headers);
+     }
+     if(url.pathname==="/api/admin/workspaces" && request.method==="POST") {
+      if(!admin.is_master_admin) return json({error:"Master Admin access required."},403,headers);
+      const body=await request.json().catch(()=>({})); const targetId=String(body.userId||"").trim(); const name=String(body.name||"").trim();
+      if(!targetId||name.length<2||name.length>60) return json({error:"Choose a user and enter a workspace name (2–60 characters)."},400,headers);
+      const target=await env.DB.prepare("SELECT id FROM users WHERE id=?").bind(targetId).first();
+      if(!target) return json({error:"User not found."},404,headers);
+      const id=crypto.randomUUID(),slug="ws-"+random(8).toLowerCase().replace(/[^a-z0-9]/g,"").slice(0,10),now=Date.now();
+      await env.DB.batch([
+       env.DB.prepare("INSERT INTO workspaces (id,owner_user_id,name,slug,created_at) VALUES (?,?,?,?,?)").bind(id,targetId,name,slug,now),
+       env.DB.prepare("INSERT INTO workspace_members (workspace_id,user_id,role,created_at) VALUES (?,?,?,?)").bind(id,targetId,"owner",now)
+      ]);
+      await audit("workspace.created_for_user","workspace",id,{userId:targetId,name,createdByMasterAdmin:true});
+      return json({ok:true,workspace:{id,name,slug,owner_user_id:targetId,created_at:now}},201,headers);
+     }
+     const inspectMatch=url.pathname.match(/^\\/api\\/admin\\/users\\/([a-f0-9-]+)\\/inspect$/i);
+     if(inspectMatch && request.method==="GET") {
+      if(!admin.is_master_admin) return json({error:"Master Admin access required."},403,headers);
+      const targetId=inspectMatch[1];
+      const target=await env.DB.prepare("SELECT id,email,display_name,role,plan,status,created_at FROM users WHERE id=?").bind(targetId).first();
+      if(!target) return json({error:"User not found."},404,headers);
+      const [workspaces,pages,bio,products,stores,forms,invoices,analytics]=await Promise.all([
+       env.DB.prepare("SELECT w.id,w.name,w.slug,w.created_at,wm.role FROM workspaces w JOIN workspace_members wm ON wm.workspace_id=w.id WHERE wm.user_id=? ORDER BY w.created_at").bind(targetId).all(),
+       env.DB.prepare("SELECT id,title,slug,description,destination_url,status,workspace_id,created_at FROM pages WHERE user_id=? AND status!='deleted' ORDER BY created_at DESC LIMIT 100").bind(targetId).all(),
+       env.DB.prepare("SELECT id,username,display_name,bio,avatar_url,theme,workspace_id,created_at FROM bio_profiles WHERE user_id=?").bind(targetId).all(),
+       env.DB.prepare("SELECT id,name,description,price_cents,currency,category,image_url,status,bio_enabled,store_enabled,workspace_id,created_at FROM products WHERE user_id=? ORDER BY created_at DESC LIMIT 100").bind(targetId).all(),
+       env.DB.prepare("SELECT id,slug,store_name,description,logo_url,theme,enabled,workspace_id,created_at FROM product_stores WHERE user_id=?").bind(targetId).all(),
+       env.DB.prepare("SELECT id,title,description,slug,fields_json,status,workspace_id,created_at,(SELECT COUNT(*) FROM form_submissions s WHERE s.form_id=forms.id) AS submission_count FROM forms WHERE user_id=? ORDER BY created_at DESC LIMIT 100").bind(targetId).all(),
+       env.DB.prepare("SELECT id,invoice_number,customer_name,customer_email,currency,total_cents,status,workspace_id,created_at FROM invoices WHERE user_id=? ORDER BY created_at DESC LIMIT 100").bind(targetId).all(),
+       env.DB.prepare("SELECT event_type,resource_type,COUNT(*) AS total,MAX(created_at) AS last_seen FROM analytics_events WHERE user_id=? GROUP BY event_type,resource_type ORDER BY total DESC LIMIT 20").bind(targetId).all()
+      ]);
+      const bioProfiles=await Promise.all((bio.results||[]).map(async profile=>{const links=await env.DB.prepare("SELECT id,title,url,icon,is_active,clicks,position FROM bio_links WHERE profile_id=? ORDER BY position").bind(profile.id).all();return {...profile,links:links.results||[]};}));
+      await audit("user.content_inspected","user",targetId,{sections:["workspaces","pages","bio","products","stores","forms","invoices","analytics"],readOnly:true});
+      return json({user:target,workspaces:workspaces.results||[],pages:pages.results||[],bio:bioProfiles,products:products.results||[],stores:stores.results||[],forms:forms.results||[],invoices:invoices.results||[],analytics:analytics.results||[]},200,headers);
+     }
 
     if(url.pathname==="/api/admin/overview" && request.method==="GET") {
      const [users,active,suspended,banned,premium,plans,usage,recent]=await Promise.all([
