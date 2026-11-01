@@ -18,4 +18,4 @@ migrations_dir = "migrations"
 # id = "REPLACE_WITH_KV_NAMESPACE_ID"
 
 [vars]
-SITE_ORIGIN = "https://orbitdesk.pages.dev"
+SITE_ORIGIN = "https://orbitdesk-443.pages.dev"
